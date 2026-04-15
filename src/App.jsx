@@ -1,5 +1,21 @@
 import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
+import { initializeApp } from "firebase/app";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
+import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+
+// ─── Firebase Configuration ─────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyDgPf1bqMkpnq6CyXRUNT3BIL-Jc24DZCE",
+  authDomain: "signature-phones-pos.firebaseapp.com",
+  projectId: "signature-phones-pos",
+  storageBucket: "signature-phones-pos.firebasestorage.app",
+  messagingSenderId: "794374452986",
+  appId: "1:794374452986:web:007a85e64a36b7a3563b43"
+};
+const fbApp = initializeApp(firebaseConfig);
+const auth = getAuth(fbApp);
+const db = getFirestore(fbApp);
 
 const TABS = ["pos", "inventory", "sales", "customers", "repairs", "reports"];
 const TAB_LABELS = { pos: "Point of Sale", inventory: "Inventory", sales: "Sales History", customers: "Customers", repairs: "Repairs", reports: "Reports" };
@@ -12,8 +28,8 @@ const TAB_ICONS = {
   reports: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
 };
 
-const CATEGORIES = ["Smartphones", "Accessories", "Cases", "Chargers", "Screen Protectors", "Cables", "Audio", "Other"];
-const SERIALIZED_CATEGORIES = ["Smartphones", "Audio"];
+const CATEGORIES = ["Smartphones", "Laptops", "Tablets", "Accessories", "Cases", "Chargers", "Screen Protectors", "Cables", "Audio", "Other"];
+const SERIALIZED_CATEGORIES = ["Smartphones", "Laptops", "Tablets", "Audio"];
 const REPAIR_STATUSES = ["Received", "Diagnosing", "Waiting for Parts", "In Repair", "Testing", "Ready for Pickup", "Completed"];
 
 const currency = (n) => `£${Number(n || 0).toFixed(2)}`;
@@ -47,6 +63,7 @@ const parseExcelRows = (rows) => {
     const imei = (r.imei || r.serial || r["serial number"] || "").toString().trim();
     const color = (r.colour || r.color || "").toString().trim();
     const storage = (r.storage || r.memory || "").toString().trim();
+    const unitCost = parseFloat(r["unit cost"] || r.unitcost || 0) || cost;
 
     if (!name) { errors.push(`Row ${rowNum}: missing Name`); return; }
     if (!sku) { errors.push(`Row ${rowNum}: missing SKU`); return; }
@@ -59,9 +76,9 @@ const parseExcelRows = (rows) => {
     const p = grouped[key];
 
     if (imei) {
-      // Serialized unit row
+      // Serialized unit row — uses per-unit cost if provided, otherwise product default
       p.serialized = true;
-      p.units.push({ id: uid(), imei, color, storage, status: "in_stock" });
+      p.units.push({ id: uid(), imei, color, storage, cost: unitCost, status: "in_stock" });
     } else if (stockRaw !== undefined && stockRaw !== "" && stockRaw !== null) {
       // Non-serialized stock row
       p.stock += parseInt(stockRaw, 10) || 0;
@@ -76,14 +93,14 @@ const parseExcelRows = (rows) => {
 // Build a downloadable template Excel
 const downloadTemplate = () => {
   const data = [
-    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Stock: "", IMEI: "353456789012345", Colour: "Natural Titanium", Storage: "256GB" },
-    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Stock: "", IMEI: "353456789012346", Colour: "Blue Titanium", Storage: "512GB" },
-    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Stock: "", IMEI: "353456789012347", Colour: "Black Titanium", Storage: "1TB" },
-    { Name: "USB-C Charger 65W", SKU: "USBC65", Category: "Chargers", Cost: 12, Price: 29.99, Stock: 25, IMEI: "", Colour: "", Storage: "" },
-    { Name: "iPhone 15 Clear Case", SKU: "IP15CC", Category: "Cases", Cost: 5, Price: 19.99, Stock: 40, IMEI: "", Colour: "", Storage: "" },
+    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Stock: "", IMEI: "353456789012345", Colour: "Natural Titanium", Storage: "256GB", "Unit Cost": 920 },
+    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Stock: "", IMEI: "353456789012346", Colour: "Blue Titanium", Storage: "512GB", "Unit Cost": 980 },
+    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Stock: "", IMEI: "353456789012347", Colour: "Black Titanium", Storage: "1TB", "Unit Cost": 1050 },
+    { Name: "USB-C Charger 65W", SKU: "USBC65", Category: "Chargers", Cost: 12, Price: 29.99, Stock: 25, IMEI: "", Colour: "", Storage: "", "Unit Cost": "" },
+    { Name: "iPhone 15 Clear Case", SKU: "IP15CC", Category: "Cases", Cost: 5, Price: 19.99, Stock: 40, IMEI: "", Colour: "", Storage: "", "Unit Cost": "" },
   ];
   const ws = XLSX.utils.json_to_sheet(data);
-  ws["!cols"] = [{ wch: 24 }, { wch: 10 }, { wch: 16 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 10 }];
+  ws["!cols"] = [{ wch: 24 }, { wch: 10 }, { wch: 16 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 10 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Products");
   XLSX.writeFile(wb, "phone-shop-import-template.xlsx");
@@ -311,11 +328,17 @@ const SAMPLE_PRODUCTS = [
   { id: uid(), name: "Lightning Cable 2m", category: "Cables", price: 14.99, cost: 3, stock: 30, sku: "LC2M", serialized: false, units: [] },
 ];
 
+// Load data from Firestore (one document per "key" under shop/data/)
 const loadData = async (key, fallback) => {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+  try {
+    const snap = await getDoc(doc(db, "shop", key));
+    return snap.exists() ? (snap.data().value || fallback) : fallback;
+  } catch (e) { console.error("Load error:", e); return fallback; }
 };
+// Save data to Firestore
 const saveData = async (key, data) => {
-  try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error("Save error:", e); }
+  try { await setDoc(doc(db, "shop", key), { value: data, updatedAt: new Date().toISOString() }); }
+  catch (e) { console.error("Save error:", e); }
 };
 
 // ─── Reusable Components ────────────────────────────────────────────
@@ -427,7 +450,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
   };
 
   const addSerializedToCart = (p, unit) => {
-    setCart(prev => [...prev, { cartItemId: uid(), productId: p.id, name: p.name, price: p.price, qty: 1, imei: unit.imei, unitId: unit.id, color: unit.color || "", storage: unit.storage || "" }]);
+    setCart(prev => [...prev, { cartItemId: uid(), productId: p.id, name: p.name, price: p.price, cost: unit.cost ?? p.cost ?? 0, qty: 1, imei: unit.imei, unitId: unit.id, color: unit.color || "", storage: unit.storage || "" }]);
     setImeiPicker(null);
   };
 
@@ -438,7 +461,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
         if (exists.qty >= getStock(p)) return prev;
         return prev.map(c => c.cartItemId === exists.cartItemId ? { ...c, qty: c.qty + 1 } : c);
       }
-      return [...prev, { cartItemId: uid(), productId: p.id, name: p.name, price: p.price, qty: 1, imei: null, unitId: null }];
+      return [...prev, { cartItemId: uid(), productId: p.id, name: p.name, price: p.price, cost: p.cost ?? 0, qty: 1, imei: null, unitId: null }];
     });
   };
 
@@ -463,7 +486,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
     if (cart.length === 0) return;
     const sale = {
       id: uid(),
-      items: cart.map(c => ({ productId: c.productId, name: c.name, qty: c.qty, price: c.price, imei: c.imei || "", unitId: c.unitId || "", color: c.color || "", storage: c.storage || "" })),
+      items: cart.map(c => ({ productId: c.productId, name: c.name, qty: c.qty, price: c.price, cost: c.cost ?? 0, imei: c.imei || "", unitId: c.unitId || "", color: c.color || "", storage: c.storage || "" })),
       subtotal, discount, discountAmt, total,
       customer: selCustomer || null,
       date: new Date().toISOString()
@@ -653,6 +676,7 @@ const InventoryTab = ({ products, setProducts }) => {
   const [newImei, setNewImei] = useState("");
   const [newColor, setNewColor] = useState("");
   const [newStorage, setNewStorage] = useState("");
+  const [newUnitCost, setNewUnitCost] = useState("");
   const [importModal, setImportModal] = useState(false);
   const [importPreview, setImportPreview] = useState(null); // { products, errors } or null
   const [importError, setImportError] = useState("");
@@ -735,10 +759,13 @@ const InventoryTab = ({ products, setProducts }) => {
     if (!newImei.trim()) return;
     const isDuplicate = products.some(p => (p.units || []).some(u => u.imei === newImei.trim()));
     if (isDuplicate) { alert("This IMEI/Serial already exists in inventory!"); return; }
-    setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: [...(p.units || []), { id: uid(), imei: newImei.trim(), color: newColor.trim(), storage: newStorage.trim(), status: "in_stock" }] } : p));
+    const product = products.find(p => p.id === productId);
+    const unitCost = newUnitCost.trim() ? +newUnitCost : (product?.cost || 0);
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: [...(p.units || []), { id: uid(), imei: newImei.trim(), color: newColor.trim(), storage: newStorage.trim(), cost: unitCost, status: "in_stock" }] } : p));
     setNewImei("");
     setNewColor("");
     setNewStorage("");
+    setNewUnitCost("");
   };
   const removeUnit = (productId, unitId) => {
     setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: (p.units || []).filter(u => u.id !== unitId) } : p));
@@ -813,7 +840,7 @@ const InventoryTab = ({ products, setProducts }) => {
             const cat = e.target.value;
             setForm({ ...form, category: cat, serialized: SERIALIZED_CATEGORIES.includes(cat) });
           }} />
-          <Input label="Cost Price (£)" type="number" min={0} value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} />
+          <Input label={form.serialized || SERIALIZED_CATEGORIES.includes(form.category) ? "Default Unit Cost (£)" : "Cost Price (£)"} type="number" min={0} value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} />
           <Input label="Selling Price (£)" type="number" min={0} value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
           {!(SERIALIZED_CATEGORIES.includes(form.category) || form.serialized) && (
             <Input label="Stock Quantity" type="number" min={0} value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} />
@@ -833,13 +860,15 @@ const InventoryTab = ({ products, setProducts }) => {
       <Modal wide open={!!unitsModal} onClose={() => setUnitsModal(null)} title={currentUnitsProduct ? `Manage Units — ${currentUnitsProduct.name}` : ""}>
         {currentUnitsProduct && (
           <div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 10, marginBottom: 6, alignItems: "flex-end" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 0.8fr 0.8fr auto", gap: 10, marginBottom: 6, alignItems: "flex-end" }}>
               <Input label="IMEI / Serial Number" placeholder="e.g. 353456789012350" value={newImei} onChange={e => setNewImei(e.target.value)} style={{ marginBottom: 0 }}
                 onKeyDown={e => { if (e.key === "Enter") addUnit(currentUnitsProduct.id); }} />
               <Input label="Colour" placeholder="e.g. Black Titanium" value={newColor} onChange={e => setNewColor(e.target.value)} style={{ marginBottom: 0 }} />
               <Input label="Storage" placeholder="e.g. 256GB" value={newStorage} onChange={e => setNewStorage(e.target.value)} style={{ marginBottom: 0 }} />
+              <Input label="Cost (£)" type="number" min={0} placeholder={String(currentUnitsProduct.cost || 0)} value={newUnitCost} onChange={e => setNewUnitCost(e.target.value)} style={{ marginBottom: 0 }} />
               <Btn onClick={() => addUnit(currentUnitsProduct.id)} variant="success" style={{ marginBottom: 14 }}>+ Add</Btn>
             </div>
+            <div style={{ fontSize: 11, color: "#505070", marginBottom: 10, marginTop: -4 }}>💡 Leave Cost blank to use the product default ({currency(currentUnitsProduct.cost || 0)})</div>
             <div style={{ fontSize: 12, color: "#7070a0", marginBottom: 10 }}>
               <Badge color="#10b981">{currentUnitsProduct.units.filter(u => u.status === "in_stock").length} in stock</Badge>
               <span style={{ marginLeft: 8 }}><Badge color="#6b7280">{currentUnitsProduct.units.filter(u => u.status === "sold").length} sold</Badge></span>
@@ -853,6 +882,7 @@ const InventoryTab = ({ products, setProducts }) => {
                     <th style={{ padding: "8px" }}>IMEI / Serial</th>
                     <th style={{ padding: "8px" }}>Colour</th>
                     <th style={{ padding: "8px" }}>Storage</th>
+                    <th style={{ padding: "8px", textAlign: "right" }}>Cost</th>
                     <th style={{ padding: "8px" }}>Status</th>
                     <th style={{ padding: "8px", textAlign: "center" }}>Action</th>
                   </tr>
@@ -864,6 +894,7 @@ const InventoryTab = ({ products, setProducts }) => {
                       <td style={{ padding: "8px", fontFamily: "monospace", color: "#f59e0b", fontWeight: 700, fontSize: 14 }}>{u.imei}</td>
                       <td style={{ padding: "8px", color: "#a78bfa" }}>{u.color || "—"}</td>
                       <td style={{ padding: "8px", color: "#c0c0e0", fontWeight: 600 }}>{u.storage || "—"}</td>
+                      <td style={{ padding: "8px", textAlign: "right", color: "#10b981", fontWeight: 600 }}>{currency(u.cost ?? currentUnitsProduct.cost ?? 0)}</td>
                       <td style={{ padding: "8px" }}>
                         {u.status === "in_stock" ? <Badge color="#10b981">In Stock</Badge> : <Badge color="#6b7280">Sold</Badge>}
                       </td>
@@ -875,7 +906,7 @@ const InventoryTab = ({ products, setProducts }) => {
                     </tr>
                   ))}
                   {currentUnitsProduct.units.length === 0 && (
-                    <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "#606080" }}>No units yet. Add IMEI/Serial numbers above.</td></tr>
+                    <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#606080" }}>No units yet. Add IMEI/Serial numbers above.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -891,11 +922,12 @@ const InventoryTab = ({ products, setProducts }) => {
             <div style={{ background: "#12122a", borderRadius: 10, padding: 16, marginBottom: 16, border: "1px solid #2a2a4a" }}>
               <div style={{ fontSize: 13, color: "#c0c0e0", fontWeight: 600, marginBottom: 8 }}>📋 How it works</div>
               <div style={{ fontSize: 12, color: "#9090b8", lineHeight: 1.6 }}>
-                Upload an Excel file (.xlsx) with columns: <span style={{ color: "#a78bfa" }}>Name, SKU, Category, Cost, Price, Stock, IMEI, Colour, Storage</span>.<br/>
+                Upload an Excel file (.xlsx) with columns: <span style={{ color: "#a78bfa" }}>Name, SKU, Category, Cost, Price, Stock, IMEI, Colour, Storage, Unit Cost</span>.<br/>
                 • For <strong>generic products</strong> (cases, cables, etc.) — fill in <span style={{ color: "#10b981" }}>Stock</span>, leave IMEI blank.<br/>
                 • For <strong>serialized devices</strong> (phones, AirPods) — one row per physical unit with its <span style={{ color: "#f59e0b" }}>IMEI</span>, Colour, and Storage. Leave Stock blank.<br/>
                 • Multiple rows with the same SKU are merged into one product with multiple units.<br/>
-                • Existing products (matched by SKU) get new units added; duplicate IMEIs are skipped.
+                • Existing products (matched by SKU) get new units added; duplicate IMEIs are skipped.<br/>
+                • <span style={{ color: "#10b981" }}>Unit Cost</span> lets each phone have its own cost (since you may pay different prices for the same model). Leave blank to use the default Cost.
               </div>
             </div>
             <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
@@ -1326,8 +1358,11 @@ const ReportsTab = ({ sales, products, repairs }) => {
     if (range === "month") return diff < 30;
     return true;
   };
-  const filtered = sales.filter(s => filterDate(s.date));
+  const filtered = sales.filter(s => filterDate(s.date) && !s.refunded);
   const revenue = filtered.reduce((t, s) => t + s.total, 0);
+  const totalCost = filtered.reduce((t, s) => t + s.items.reduce((a, i) => a + ((i.cost || 0) * i.qty), 0), 0);
+  const profit = revenue - totalCost;
+  const profitMargin = revenue > 0 ? (profit / revenue) * 100 : 0;
   const itemsSold = filtered.reduce((t, s) => t + s.items.reduce((a, i) => a + i.qty, 0), 0);
   const avgSale = filtered.length ? revenue / filtered.length : 0;
   const prodMap = {};
@@ -1335,7 +1370,7 @@ const ReportsTab = ({ sales, products, repairs }) => {
   const topProducts = Object.entries(prodMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
   const dailyRev = {};
   for (let i = 6; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); dailyRev[d.toISOString().slice(0, 10)] = 0; }
-  sales.forEach(s => { const key = s.date.slice(0, 10); if (dailyRev[key] !== undefined) dailyRev[key] += s.total; });
+  sales.filter(s => !s.refunded).forEach(s => { const key = s.date.slice(0, 10); if (dailyRev[key] !== undefined) dailyRev[key] += s.total; });
   const maxDailyRev = Math.max(...Object.values(dailyRev), 1);
   const repairRev = repairs.filter(r => r.status === "Completed").reduce((t, r) => t + (r.cost || 0), 0);
 
@@ -1346,8 +1381,12 @@ const ReportsTab = ({ sales, products, repairs }) => {
           <button key={v} onClick={() => setRange(v)} style={{ padding: "8px 16px", borderRadius: 10, border: `1px solid ${range === v ? "#6366f1" : "#2a2a4a"}`, background: range === v ? "#6366f122" : "transparent", color: range === v ? "#8b5cf6" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{l}</button>
         ))}
       </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
         <StatCard label="Total Revenue" value={currency(revenue)} color="#10b981" sub={`${filtered.length} transactions`} />
+        <StatCard label="Total Cost" value={currency(totalCost)} color="#ef4444" sub="What you paid" />
+        <StatCard label="Net Profit" value={currency(profit)} color="#a78bfa" sub={`${profitMargin.toFixed(1)}% margin`} />
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <StatCard label="Items Sold" value={itemsSold} color="#6366f1" />
         <StatCard label="Average Sale" value={currency(avgSale)} color="#8b5cf6" />
         <StatCard label="Repair Revenue" value={currency(repairRev)} color="#f59e0b" />
@@ -1412,7 +1451,80 @@ const ReportsTab = ({ sales, products, repairs }) => {
 
 // ─── Main App ───────────────────────────────────────────────────────
 
+// ─── Login Screen ───────────────────────────────────────────────────
+
+const LoginScreen = ({ onLogin }) => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      const msg = err.code === "auth/invalid-credential" ? "Wrong email or password" :
+                  err.code === "auth/too-many-requests" ? "Too many attempts. Try again later." :
+                  err.message.replace("Firebase: ", "");
+      setError(msg);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0e0e1a 0%, #1a1a2e 100%)", fontFamily: "'DM Sans', sans-serif" }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+      <div style={{ background: "linear-gradient(145deg, #1a1a2e, #14142a)", border: "1px solid #2a2a4a", borderRadius: 20, padding: 40, width: 380, maxWidth: "92vw", boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ fontSize: 42, marginBottom: 8 }}>📱</div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#e0e0ff" }}>Signature Phones</h1>
+          <div style={{ fontSize: 12, color: "#6366f1", fontWeight: 600, marginTop: 4, letterSpacing: 2 }}>POS SYSTEM</div>
+        </div>
+        <form onSubmit={handleLogin}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 12, color: "#9090b8", marginBottom: 6 }}>Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus
+              style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a2a4a", background: "#12122a", color: "#e0e0ff", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+          </div>
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ display: "block", fontSize: 12, color: "#9090b8", marginBottom: 6 }}>Password</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required
+              style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a2a4a", background: "#12122a", color: "#e0e0ff", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+          </div>
+          {error && <div style={{ background: "#ef444422", border: "1px solid #ef4444", color: "#ef4444", padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 14 }}>⚠ {error}</div>}
+          <button type="submit" disabled={loading} style={{ width: "100%", padding: "12px 0", borderRadius: 10, border: "none", background: loading ? "#444" : "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", fontSize: 15, fontWeight: 700, cursor: loading ? "wait" : "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+            {loading ? "Signing in…" : "Sign In"}
+          </button>
+        </form>
+        <div style={{ textAlign: "center", marginTop: 18, fontSize: 11, color: "#505070" }}>Authorised personnel only</div>
+      </div>
+    </div>
+  );
+};
+
 export default function PhoneShopPOS() {
+  const [user, setUser] = useState(null);
+  const [authChecking, setAuthChecking] = useState(true);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => { setUser(u); setAuthChecking(false); });
+    return unsub;
+  }, []);
+
+  if (authChecking) return (
+    <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0e0e1a", color: "#8b5cf6", fontFamily: "'DM Sans', sans-serif", fontSize: 16 }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+      Loading…
+    </div>
+  );
+  if (!user) return <LoginScreen />;
+  return <MainApp user={user} />;
+}
+
+function MainApp({ user }) {
   const [tab, setTab] = useState("pos");
   const [products, setProducts] = useState([]);
   const [sales, setSales] = useState([]);
@@ -1466,7 +1578,12 @@ export default function PhoneShopPOS() {
             </button>
           ))}
         </nav>
-        {sidebarOpen && <div style={{ padding: "12px 14px", borderTop: "1px solid #1e1e38" }}><button onClick={resetAll} style={{ fontSize: 11, color: "#505070", background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>🔄 Reset All Data</button></div>}
+        {sidebarOpen && <div style={{ padding: "12px 14px", borderTop: "1px solid #1e1e38" }}>
+          <div style={{ fontSize: 11, color: "#7070a0", marginBottom: 6, wordBreak: "break-all" }}>👤 {user.email}</div>
+          <button onClick={() => signOut(auth)} style={{ fontSize: 12, color: "#ef4444", background: "none", border: "1px solid #ef444466", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6 }}>🚪 Sign Out</button>
+          <br />
+          <button onClick={resetAll} style={{ fontSize: 11, color: "#505070", background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>🔄 Reset All Data</button>
+        </div>}
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <header style={{ padding: "16px 24px", borderBottom: "1px solid #1e1e38", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
