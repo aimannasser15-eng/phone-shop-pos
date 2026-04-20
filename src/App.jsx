@@ -31,6 +31,7 @@ const TAB_ICONS = {
 const CATEGORIES = ["Smartphones", "Laptops", "Tablets", "Accessories", "Cases", "Chargers", "Screen Protectors", "Cables", "Audio", "Other"];
 const SERIALIZED_CATEGORIES = ["Smartphones", "Laptops", "Tablets", "Audio"];
 const REPAIR_STATUSES = ["Received", "Diagnosing", "Waiting for Parts", "In Repair", "Testing", "Ready for Pickup", "Completed"];
+const GRADES = ["A", "B", "C", "D"];
 
 const currency = (n) => `£${Number(n || 0).toFixed(2)}`;
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -111,9 +112,9 @@ const downloadTemplate = () => {
 const SHOP = {
   name: "Signature Phones",
   tagline: "Stay Connected",
-  address: "[Your Shop Address]",
-  phone: "[Your Phone Number]",
-  email: "[Your Email]",
+  address: "12 Dovecot Place, Liverpool L14 9PH",
+  phone: "07778 555546",
+  email: "signaturephones@outlook.com",
 };
 
 const SALE_TERMS = [
@@ -150,7 +151,7 @@ const buildReceiptHTML = ({ type, data, customer }) => {
   const itemsHTML = isSale
     ? data.items.map(i => `
         <tr>
-          <td>${i.qty}× ${i.name}${(i.color || i.storage) ? `<br><span style="color:#666;font-size:11px">${[i.color, i.storage].filter(Boolean).join(" · ")}</span>` : ""}${i.imei ? `<br><span style="color:#b45309;font-size:11px;font-family:monospace">IMEI/SN: ${i.imei}</span>` : ""}</td>
+          <td>${i.qty}× ${i.name}${(i.color || i.storage) ? `<br><span style="color:#666;font-size:11px">${[i.color, i.storage, i.grade ? `Grade ${i.grade}` : ""].filter(Boolean).join(" · ")}</span>` : ""}${i.imei ? `<br><span style="color:#b45309;font-size:11px;font-family:monospace">IMEI/SN: ${i.imei}</span>` : ""}</td>
           <td style="text-align:right">£${(i.price * i.qty).toFixed(2)}</td>
         </tr>`).join("")
     : `
@@ -162,7 +163,7 @@ const buildReceiptHTML = ({ type, data, customer }) => {
   const totalsHTML = isSale
     ? `
         <tr><td>Subtotal</td><td style="text-align:right">£${data.subtotal.toFixed(2)}</td></tr>
-        ${data.discount > 0 ? `<tr><td>Discount (${data.discount}%)</td><td style="text-align:right;color:#dc2626">-£${data.discountAmt.toFixed(2)}</td></tr>` : ""}
+        ${data.discount > 0 ? `<tr><td>Discount</td><td style="text-align:right;color:#dc2626">-£${data.discountAmt.toFixed(2)}</td></tr>` : ""}
         <tr style="font-size:18px;font-weight:800;border-top:2px solid #000"><td style="padding-top:8px">TOTAL</td><td style="text-align:right;padding-top:8px">£${data.total.toFixed(2)}</td></tr>`
     : `
         <tr><td>Status</td><td style="text-align:right"><strong>${data.status}</strong></td></tr>
@@ -189,7 +190,7 @@ const buildReceiptHTML = ({ type, data, customer }) => {
   .terms li { margin-bottom: 4px; }
   .thanks { text-align: center; margin-top: 16px; font-size: 12px; color: #555; }
   .btn-row { text-align: center; margin-top: 20px; }
-  .btn-row button { background: #6366f1; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; margin: 0 4px; font-weight: 600; }
+  .btn-row button { background: #2563eb; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; margin: 0 4px; font-weight: 600; }
 </style></head>
 <body>
   <div class="logo-box">LOGO<br>HERE</div>
@@ -229,12 +230,12 @@ const buildReceiptText = ({ type, data, customer }) => {
   if (isSale) {
     data.items.forEach(i => {
       L.push(`${i.qty}x ${i.name} — £${(i.price * i.qty).toFixed(2)}`);
-      if (i.color || i.storage) L.push(`   ${[i.color, i.storage].filter(Boolean).join(" · ")}`);
+      if (i.color || i.storage) L.push(`   ${[i.color, i.storage, i.grade ? `Grade ${i.grade}` : ""].filter(Boolean).join(" · ")}`);
       if (i.imei) L.push(`   IMEI/SN: ${i.imei}`);
     });
     L.push("─────────────────────");
     L.push(`Subtotal: £${data.subtotal.toFixed(2)}`);
-    if (data.discount > 0) L.push(`Discount (${data.discount}%): -£${data.discountAmt.toFixed(2)}`);
+    if (data.discount > 0) L.push(`Discount: -£${data.discountAmt.toFixed(2)}`);
     L.push(`*TOTAL: £${data.total.toFixed(2)}*`);
   } else {
     L.push(`Device: ${data.device}`);
@@ -346,11 +347,11 @@ const saveData = async (key, data) => {
 const Modal = ({ open, onClose, title, children, wide }) => {
   if (!open) return null;
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: "#1a1a2e", border: "1px solid #2a2a4a", borderRadius: 16, padding: 28, width: wide ? 680 : 480, maxWidth: "94vw", maxHeight: "88vh", overflow: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.3)", backdropFilter: "blur(4px)" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 16, padding: 28, width: wide ? 680 : 480, maxWidth: "94vw", maxHeight: "88vh", overflow: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 20, color: "#e0e0ff", fontFamily: "'DM Sans', sans-serif" }}>{title}</h2>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#888", fontSize: 22, cursor: "pointer", padding: 4 }}>✕</button>
+          <h2 style={{ margin: 0, fontSize: 20, color: "#111827", fontFamily: "'DM Sans', sans-serif" }}>{title}</h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#999", fontSize: 22, cursor: "pointer", padding: 4 }}>✕</button>
         </div>
         {children}
       </div>
@@ -360,11 +361,11 @@ const Modal = ({ open, onClose, title, children, wide }) => {
 
 const Btn = ({ children, onClick, variant = "primary", style = {}, disabled }) => {
   const styles = {
-    primary: { background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff" },
-    success: { background: "linear-gradient(135deg, #10b981, #059669)", color: "#fff" },
-    danger: { background: "linear-gradient(135deg, #ef4444, #dc2626)", color: "#fff" },
-    ghost: { background: "rgba(255,255,255,0.06)", color: "#c0c0e0", border: "1px solid #333360" },
-    warning: { background: "linear-gradient(135deg, #f59e0b, #d97706)", color: "#fff" },
+    primary: { background: "linear-gradient(135deg, #2563eb, #3b82f6)", color: "#fff" },
+    success: { background: "linear-gradient(135deg, #059669, #10b981)", color: "#fff" },
+    danger: { background: "linear-gradient(135deg, #dc2626, #ef4444)", color: "#fff" },
+    ghost: { background: "rgba(0,0,0,0.04)", color: "#374151", border: "1px solid #c0c8d8" },
+    warning: { background: "linear-gradient(135deg, #d97706, #f59e0b)", color: "#fff" },
   };
   return (
     <button disabled={disabled} onClick={onClick} style={{ border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 14, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s", ...styles[variant], ...style }}>{children}</button>
@@ -373,33 +374,33 @@ const Btn = ({ children, onClick, variant = "primary", style = {}, disabled }) =
 
 const Input = ({ label, ...props }) => (
   <div style={{ marginBottom: 14 }}>
-    {label && <label style={{ display: "block", fontSize: 12, color: "#9090b8", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>{label}</label>}
-    <input {...props} style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #2a2a4a", background: "#12122a", color: "#e0e0ff", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none", ...props.style }} />
+    {label && <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>{label}</label>}
+    <input {...props} style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none", ...props.style }} />
   </div>
 );
 
 const Select = ({ label, options, ...props }) => (
   <div style={{ marginBottom: 14 }}>
-    {label && <label style={{ display: "block", fontSize: 12, color: "#9090b8", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>{label}</label>}
-    <select {...props} style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #2a2a4a", background: "#12122a", color: "#e0e0ff", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none", ...props.style }}>
+    {label && <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>{label}</label>}
+    <select {...props} style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none", ...props.style }}>
       {options.map(o => <option key={typeof o === "string" ? o : o.value} value={typeof o === "string" ? o : o.value}>{typeof o === "string" ? o : o.label}</option>)}
     </select>
   </div>
 );
 
-const Badge = ({ children, color = "#6366f1" }) => (
+const Badge = ({ children, color = "#2563eb" }) => (
   <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: `${color}22`, color, fontFamily: "'DM Sans', sans-serif" }}>{children}</span>
 );
 
 const Card = ({ children, style = {} }) => (
-  <div style={{ background: "linear-gradient(145deg, #1a1a2e, #16162a)", border: "1px solid #2a2a4a", borderRadius: 16, padding: 20, ...style }}>{children}</div>
+  <div style={{ background: "linear-gradient(145deg, #ffffff, #f8f9fc)", border: "1px solid #d4d8e0", borderRadius: 16, padding: 20, ...style }}>{children}</div>
 );
 
-const StatCard = ({ label, value, sub, color = "#6366f1" }) => (
+const StatCard = ({ label, value, sub, color = "#2563eb" }) => (
   <Card style={{ flex: 1, minWidth: 140 }}>
-    <div style={{ fontSize: 12, color: "#7070a0", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>{label}</div>
+    <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>{label}</div>
     <div style={{ fontSize: 26, fontWeight: 800, color, fontFamily: "'DM Sans', sans-serif" }}>{value}</div>
-    {sub && <div style={{ fontSize: 12, color: "#606080", marginTop: 4, fontFamily: "'DM Sans', sans-serif" }}>{sub}</div>}
+    {sub && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4, fontFamily: "'DM Sans', sans-serif" }}>{sub}</div>}
   </Card>
 );
 
@@ -413,6 +414,39 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
   const [discount, setDiscount] = useState(0);
   const [imeiPicker, setImeiPicker] = useState(null);
   const [posCatFilter, setPosCatFilter] = useState("All");
+  const [scanInput, setScanInput] = useState("");
+  const [scanMsg, setScanMsg] = useState("");
+
+  // Barcode scanner handler — scans IMEI, finds matching unit, adds to cart
+  const handleScan = (value) => {
+    const scanned = value.trim();
+    if (!scanned) return;
+    setScanInput("");
+    // Find a product with a unit matching this IMEI
+    for (const p of products) {
+      if (!p.serialized) continue;
+      const unit = (p.units || []).find(u => u.status === "in_stock" && u.imei === scanned && !cartUnitIds.has(u.id));
+      if (unit) {
+        addSerializedToCart(p, unit);
+        setScanMsg(`✅ Added: ${p.name} — ${scanned}`);
+        setTimeout(() => setScanMsg(""), 3000);
+        return;
+      }
+    }
+    // Check if it exists but is already sold or in cart
+    for (const p of products) {
+      if (!p.serialized) continue;
+      const soldUnit = (p.units || []).find(u => u.imei === scanned);
+      if (soldUnit) {
+        if (soldUnit.status === "sold") { setScanMsg(`⚠️ ${scanned} — already sold`); }
+        else if (cartUnitIds.has(soldUnit.id)) { setScanMsg(`⚠️ ${scanned} — already in cart`); }
+        setTimeout(() => setScanMsg(""), 3000);
+        return;
+      }
+    }
+    setScanMsg(`❌ IMEI not found: ${scanned}`);
+    setTimeout(() => setScanMsg(""), 3000);
+  };
 
   const filtered = products.filter(p => {
     const s = search.toLowerCase();
@@ -450,7 +484,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
   };
 
   const addSerializedToCart = (p, unit) => {
-    setCart(prev => [...prev, { cartItemId: uid(), productId: p.id, name: p.name, price: p.price, cost: unit.cost ?? p.cost ?? 0, qty: 1, imei: unit.imei, unitId: unit.id, color: unit.color || "", storage: unit.storage || "" }]);
+    setCart(prev => [...prev, { cartItemId: uid(), productId: p.id, name: p.name, price: p.price, cost: unit.cost ?? p.cost ?? 0, qty: 1, imei: unit.imei, unitId: unit.id, color: unit.color || "", storage: unit.storage || "", grade: unit.grade || "" }]);
     setImeiPicker(null);
   };
 
@@ -479,14 +513,14 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
   const removeFromCart = (cartItemId) => setCart(prev => prev.filter(c => c.cartItemId !== cartItemId));
 
   const subtotal = cart.reduce((s, c) => s + c.price * c.qty, 0);
-  const discountAmt = subtotal * (discount / 100);
+  const discountAmt = discount;
   const total = subtotal - discountAmt;
 
   const checkout = () => {
     if (cart.length === 0) return;
     const sale = {
       id: uid(),
-      items: cart.map(c => ({ productId: c.productId, name: c.name, qty: c.qty, price: c.price, cost: c.cost ?? 0, imei: c.imei || "", unitId: c.unitId || "", color: c.color || "", storage: c.storage || "" })),
+      items: cart.map(c => ({ productId: c.productId, name: c.name, qty: c.qty, price: c.price, cost: c.cost ?? 0, imei: c.imei || "", unitId: c.unitId || "", color: c.color || "", storage: c.storage || "", grade: c.grade || "" })),
       subtotal, discount, discountAmt, total,
       customer: selCustomer || null,
       date: new Date().toISOString()
@@ -513,6 +547,15 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
   return (
     <div style={{ display: "flex", gap: 20, height: "100%" }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        {/* Barcode Scanner Input */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "center" }}>
+          <div style={{ position: "relative", flex: 1 }}>
+            <input placeholder="📷 Scan IMEI barcode here…" value={scanInput} onChange={e => setScanInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleScan(scanInput); }}
+              style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: "2px solid #3b82f6", background: "#ffffff", color: "#111827", fontSize: 15, fontFamily: "monospace", boxSizing: "border-box", outline: "none" }} />
+          </div>
+          {scanMsg && <div style={{ fontSize: 13, fontWeight: 600, color: scanMsg.startsWith("✅") ? "#10b981" : scanMsg.startsWith("⚠") ? "#f59e0b" : "#ef4444", whiteSpace: "nowrap" }}>{scanMsg}</div>}
+        </div>
         <Input placeholder="Search by name, SKU, or IMEI/Serial…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 0 }} />
 
         {/* Category Filter Pills */}
@@ -522,7 +565,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
             const active = posCatFilter === cat;
             return (
               <button key={cat} onClick={() => setPosCatFilter(cat)}
-                style={{ padding: "7px 14px", borderRadius: 20, border: `1px solid ${active ? "#8b5cf6" : "#2a2a4a"}`, background: active ? "linear-gradient(135deg, #6366f122, #8b5cf622)" : "#12122a", color: active ? "#a78bfa" : "#7070a0", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s", whiteSpace: "nowrap" }}>
+                style={{ padding: "7px 14px", borderRadius: 20, border: `1px solid ${active ? "#3b82f6" : "#d4d8e0"}`, background: active ? "linear-gradient(135deg, #2563eb15, #3b82f622)" : "#ffffff", color: active ? "#2563eb" : "#7070a0", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s", whiteSpace: "nowrap" }}>
                 {cat} <span style={{ opacity: 0.6, marginLeft: 4 }}>{count}</span>
               </button>
             );
@@ -530,12 +573,12 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", marginTop: 14 }}>
-          {categoryOrder.length === 0 && <div style={{ textAlign: "center", color: "#606080", padding: 40 }}>No products found</div>}
+          {categoryOrder.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 40 }}>No products found</div>}
           {categoryOrder.map(cat => (
             <div key={cat} style={{ marginBottom: 22 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 6, borderBottom: "1px solid #1e1e38" }}>
-                <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: "#a78bfa", textTransform: "uppercase", letterSpacing: 1, fontFamily: "'DM Sans', sans-serif" }}>{cat}</h3>
-                <span style={{ fontSize: 11, color: "#505070" }}>{groupedByCategory[cat].length} products</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 6, borderBottom: "1px solid #e5e7eb" }}>
+                <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: "#2563eb", textTransform: "uppercase", letterSpacing: 1, fontFamily: "'DM Sans', sans-serif" }}>{cat}</h3>
+                <span style={{ fontSize: 11, color: "#9ca3af" }}>{groupedByCategory[cat].length} products</span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 10 }}>
                 {groupedByCategory[cat].map(p => {
@@ -543,14 +586,14 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
                   const inCart = p.serialized ? cart.filter(c => c.productId === p.id).length : (cart.find(c => c.productId === p.id && !c.unitId)?.qty || 0);
                   const remaining = stock - inCart;
                   return (
-                    <div key={p.id} onClick={() => remaining > 0 && handleProductClick(p)} style={{ background: "linear-gradient(145deg, #1e1e38, #1a1a30)", border: "1px solid #2a2a4a", borderRadius: 14, padding: 14, cursor: remaining > 0 ? "pointer" : "not-allowed", transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 6, opacity: remaining <= 0 ? 0.4 : 1, minHeight: 120 }}
-                      onMouseEnter={e => { if (remaining > 0) { e.currentTarget.style.borderColor = "#6366f1"; e.currentTarget.style.transform = "translateY(-2px)"; }}}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a2a4a"; e.currentTarget.style.transform = "none"; }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#e0e0ff", lineHeight: 1.3 }}>{p.name}</div>
-                      <div style={{ fontSize: 11, color: "#7070a0" }}>{p.sku}</div>
+                    <div key={p.id} onClick={() => remaining > 0 && handleProductClick(p)} style={{ background: "linear-gradient(145deg, #ffffff, #f8f9fc)", border: "1px solid #d4d8e0", borderRadius: 14, padding: 14, cursor: remaining > 0 ? "pointer" : "not-allowed", transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 6, opacity: remaining <= 0 ? 0.4 : 1, minHeight: 120 }}
+                      onMouseEnter={e => { if (remaining > 0) { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.transform = "translateY(-2px)"; }}}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = "#d4d8e0"; e.currentTarget.style.transform = "none"; }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", lineHeight: 1.3 }}>{p.name}</div>
+                      <div style={{ fontSize: 11, color: "#6b7280" }}>{p.sku}</div>
                       {p.serialized && <div style={{ fontSize: 10, color: "#f59e0b" }}>📋 Unique IMEI</div>}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto" }}>
-                        <span style={{ fontSize: 16, fontWeight: 800, color: "#8b5cf6" }}>{currency(p.price)}</span>
+                        <span style={{ fontSize: 16, fontWeight: 800, color: "#3b82f6" }}>{currency(p.price)}</span>
                         <Badge color={stock < 5 ? "#ef4444" : "#10b981"}>{stock}</Badge>
                       </div>
                     </div>
@@ -562,37 +605,37 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
         </div>
       </div>
 
-      <div style={{ width: 340, flexShrink: 0, display: "flex", flexDirection: "column", background: "linear-gradient(180deg, #1a1a2e, #14142a)", border: "1px solid #2a2a4a", borderRadius: 16, padding: 18 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: "#e0e0ff", marginBottom: 12, fontFamily: "'DM Sans', sans-serif" }}>🛒 Cart ({cart.reduce((s, c) => s + c.qty, 0)})</div>
+      <div style={{ width: 340, flexShrink: 0, display: "flex", flexDirection: "column", background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 16, padding: 18 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 12, fontFamily: "'DM Sans', sans-serif" }}>🛒 Cart ({cart.reduce((s, c) => s + c.qty, 0)})</div>
         <Select label="Customer (optional)" options={[{ value: "", label: "Walk-in Customer" }, ...customers.map(c => ({ value: c.id, label: c.name }))]} value={selCustomer} onChange={e => setSelCustomer(e.target.value)} />
         <div style={{ flex: 1, overflowY: "auto", marginBottom: 12 }}>
           {cart.map(c => (
-            <div key={c.cartItemId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #222244" }}>
+            <div key={c.cartItemId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #e5e7eb" }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#d0d0f0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
-                {(c.color || c.storage) && <div style={{ fontSize: 11, color: "#a78bfa", marginTop: 1 }}>{[c.color, c.storage].filter(Boolean).join(" · ")}</div>}
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
+                {(c.color || c.storage || c.grade) && <div style={{ fontSize: 11, color: "#2563eb", marginTop: 1 }}>{[c.color, c.storage, c.grade ? `Grade ${c.grade}` : ""].filter(Boolean).join(" · ")}</div>}
                 {c.imei && <div style={{ fontSize: 10, color: "#f59e0b", fontFamily: "monospace", marginTop: 1 }}>IMEI/SN: {c.imei}</div>}
-                <div style={{ fontSize: 12, color: "#8b5cf6" }}>{currency(c.price)}</div>
+                <div style={{ fontSize: 12, color: "#3b82f6" }}>{currency(c.price)}</div>
               </div>
               {c.unitId ? (
-                <button onClick={() => removeFromCart(c.cartItemId)} style={{ background: "none", border: "1px solid #333360", borderRadius: 8, color: "#ef4444", cursor: "pointer", fontSize: 12, padding: "4px 10px" }}>✕</button>
+                <button onClick={() => removeFromCart(c.cartItemId)} style={{ background: "none", border: "1px solid #c0c8d8", borderRadius: 8, color: "#ef4444", cursor: "pointer", fontSize: 12, padding: "4px 10px" }}>✕</button>
               ) : (
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <button onClick={() => updateQty(c.cartItemId, c.qty - 1)} style={{ width: 26, height: 26, borderRadius: 8, border: "1px solid #333360", background: "none", color: "#c0c0e0", cursor: "pointer", fontSize: 14 }}>−</button>
-                  <span style={{ width: 24, textAlign: "center", fontSize: 14, color: "#e0e0ff", fontWeight: 700 }}>{c.qty}</span>
-                  <button onClick={() => updateQty(c.cartItemId, c.qty + 1)} style={{ width: 26, height: 26, borderRadius: 8, border: "1px solid #333360", background: "none", color: "#c0c0e0", cursor: "pointer", fontSize: 14 }}>+</button>
+                  <button onClick={() => updateQty(c.cartItemId, c.qty - 1)} style={{ width: 26, height: 26, borderRadius: 8, border: "1px solid #c0c8d8", background: "none", color: "#374151", cursor: "pointer", fontSize: 14 }}>−</button>
+                  <span style={{ width: 24, textAlign: "center", fontSize: 14, color: "#111827", fontWeight: 700 }}>{c.qty}</span>
+                  <button onClick={() => updateQty(c.cartItemId, c.qty + 1)} style={{ width: 26, height: 26, borderRadius: 8, border: "1px solid #c0c8d8", background: "none", color: "#374151", cursor: "pointer", fontSize: 14 }}>+</button>
                 </div>
               )}
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#e0e0ff", width: 64, textAlign: "right" }}>{currency(c.price * c.qty)}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", width: 64, textAlign: "right" }}>{currency(c.price * c.qty)}</div>
             </div>
           ))}
-          {cart.length === 0 && <div style={{ textAlign: "center", color: "#505070", padding: 30, fontSize: 13 }}>Tap a product to add it</div>}
+          {cart.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 30, fontSize: 13 }}>Tap a product to add it</div>}
         </div>
-        <Input label="Discount %" type="number" min={0} max={100} value={discount} onChange={e => setDiscount(Math.min(100, Math.max(0, +e.target.value)))} />
-        <div style={{ borderTop: "1px solid #2a2a4a", paddingTop: 12, marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#9090b8", marginBottom: 4 }}><span>Subtotal</span><span>{currency(subtotal)}</span></div>
-          {discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#ef4444", marginBottom: 4 }}><span>Discount ({discount}%)</span><span>-{currency(discountAmt)}</span></div>}
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 20, fontWeight: 800, color: "#e0e0ff", marginTop: 6 }}><span>Total</span><span>{currency(total)}</span></div>
+        <Input label="Discount (£)" type="number" min={0} value={discount} onChange={e => setDiscount(Math.max(0, +e.target.value))} />
+        <div style={{ borderTop: "1px solid #d4d8e0", paddingTop: 12, marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b7280", marginBottom: 4 }}><span>Subtotal</span><span>{currency(subtotal)}</span></div>
+          {discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#ef4444", marginBottom: 4 }}><span>Discount</span><span>-{currency(discountAmt)}</span></div>}
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 20, fontWeight: 800, color: "#111827", marginTop: 6 }}><span>Total</span><span>{currency(total)}</span></div>
         </div>
         <Btn onClick={checkout} disabled={cart.length === 0} variant="success" style={{ width: "100%", padding: "14px 0", fontSize: 16 }}>Complete Sale</Btn>
       </div>
@@ -601,21 +644,21 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
       <Modal open={!!imeiPicker} onClose={() => setImeiPicker(null)} title={imeiPicker ? `Select Unit — ${imeiPicker.name}` : ""} wide>
         {imeiPicker && (
           <div>
-            <div style={{ fontSize: 13, color: "#9090b8", marginBottom: 14 }}>Each unit has a unique IMEI/Serial. Pick the one you're selling:</div>
+            <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 14 }}>Each unit has a unique IMEI/Serial. Pick the one you're selling:</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 350, overflowY: "auto" }}>
               {pickerUnits.map(unit => (
                 <div key={unit.id} onClick={() => addSerializedToCart(imeiPicker, unit)}
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#12122a", border: "1px solid #2a2a4a", borderRadius: 12, cursor: "pointer", transition: "all 0.2s" }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = "#6366f1"; e.currentTarget.style.background = "#1a1a3a"; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a2a4a"; e.currentTarget.style.background = "#12122a"; }}>
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 12, cursor: "pointer", transition: "all 0.2s" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.background = "#eef2ff"; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = "#d4d8e0"; e.currentTarget.style.background = "#ffffff"; }}>
                   <div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#f59e0b", fontFamily: "monospace" }}>{unit.imei}</div>
-                    <div style={{ fontSize: 12, color: "#a78bfa", marginTop: 3 }}>{[unit.color, unit.storage].filter(Boolean).join(" · ") || "No variant info"}</div>
+                    <div style={{ fontSize: 12, color: "#2563eb", marginTop: 3 }}>{[unit.color, unit.storage, unit.grade ? `Grade ${unit.grade}` : ""].filter(Boolean).join(" · ") || "No variant info"}</div>
                   </div>
                   <Btn variant="primary" style={{ padding: "6px 16px", fontSize: 13 }}>Select</Btn>
                 </div>
               ))}
-              {pickerUnits.length === 0 && <div style={{ textAlign: "center", color: "#606080", padding: 20 }}>All units are already in cart or sold</div>}
+              {pickerUnits.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 20 }}>All units are already in cart or sold</div>}
             </div>
           </div>
         )}
@@ -624,13 +667,13 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
       {/* Receipt */}
       <Modal open={!!showReceipt} onClose={() => setShowReceipt(null)} title="Receipt">
         {showReceipt && (
-          <div style={{ fontFamily: "'Courier New', monospace", color: "#c0c0e0", fontSize: 13 }}>
+          <div style={{ fontFamily: "'Courier New', monospace", color: "#374151", fontSize: 13 }}>
             <div style={{ textAlign: "center", marginBottom: 14 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#e0e0ff" }}>📱 PHONE SHOP</div>
-              <div style={{ color: "#7070a0", fontSize: 11 }}>{new Date(showReceipt.date).toLocaleString()}</div>
-              <div style={{ color: "#7070a0", fontSize: 11 }}>Receipt #{showReceipt.id.toUpperCase()}</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>📱 PHONE SHOP</div>
+              <div style={{ color: "#6b7280", fontSize: 11 }}>{new Date(showReceipt.date).toLocaleString()}</div>
+              <div style={{ color: "#6b7280", fontSize: 11 }}>Receipt #{showReceipt.id.toUpperCase()}</div>
             </div>
-            <div style={{ borderTop: "1px dashed #333360", borderBottom: "1px dashed #333360", padding: "10px 0", margin: "10px 0" }}>
+            <div style={{ borderTop: "1px dashed #c0c8d8", borderBottom: "1px dashed #c0c8d8", padding: "10px 0", margin: "10px 0" }}>
               {showReceipt.items.map((item, i) => (
                 <div key={i} style={{ marginBottom: 10 }}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -638,15 +681,15 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
                     <span>{currency(item.price * item.qty)}</span>
                   </div>
                   {item.imei && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 2, paddingLeft: 12 }}>┗ IMEI/SN: {item.imei}</div>}
-                  {(item.color || item.storage) && <div style={{ fontSize: 11, color: "#a78bfa", paddingLeft: 12 }}>┗ {[item.color, item.storage].filter(Boolean).join(" · ")}</div>}
+                  {(item.color || item.storage || item.grade) && <div style={{ fontSize: 11, color: "#2563eb", paddingLeft: 12 }}>┗ {[item.color, item.storage, item.grade ? `Grade ${item.grade}` : ""].filter(Boolean).join(" · ")}</div>}
                 </div>
               ))}
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}><span>Subtotal:</span><span>{currency(showReceipt.subtotal)}</span></div>
-            {showReceipt.discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", color: "#ef4444" }}><span>Discount ({showReceipt.discount}%):</span><span>-{currency(showReceipt.discountAmt)}</span></div>}
+            {showReceipt.discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", color: "#ef4444" }}><span>Discount:</span><span>-{currency(showReceipt.discountAmt)}</span></div>}
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 700, color: "#10b981", marginTop: 8 }}><span>TOTAL:</span><span>{currency(showReceipt.total)}</span></div>
-            {showReceipt.customer && <div style={{ marginTop: 10, color: "#7070a0", fontSize: 11 }}>Customer: {customers.find(c => c.id === showReceipt.customer)?.name || "N/A"}</div>}
-            <div style={{ textAlign: "center", marginTop: 16, color: "#505070", fontSize: 11 }}>Thank you for your purchase!</div>
+            {showReceipt.customer && <div style={{ marginTop: 10, color: "#6b7280", fontSize: 11 }}>Customer: {customers.find(c => c.id === showReceipt.customer)?.name || "N/A"}</div>}
+            <div style={{ textAlign: "center", marginTop: 16, color: "#9ca3af", fontSize: 11 }}>Thank you for your purchase!</div>
             {(() => {
               const cust = customers.find(c => c.id === showReceipt.customer);
               const params = { type: "sale", data: showReceipt, customer: cust };
@@ -677,6 +720,8 @@ const InventoryTab = ({ products, setProducts }) => {
   const [newColor, setNewColor] = useState("");
   const [newStorage, setNewStorage] = useState("");
   const [newUnitCost, setNewUnitCost] = useState("");
+  const [newSupplier, setNewSupplier] = useState("");
+  const [newGrade, setNewGrade] = useState("");
   const [importModal, setImportModal] = useState(false);
   const [importPreview, setImportPreview] = useState(null); // { products, errors } or null
   const [importError, setImportError] = useState("");
@@ -761,11 +806,13 @@ const InventoryTab = ({ products, setProducts }) => {
     if (isDuplicate) { alert("This IMEI/Serial already exists in inventory!"); return; }
     const product = products.find(p => p.id === productId);
     const unitCost = newUnitCost.trim() ? +newUnitCost : (product?.cost || 0);
-    setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: [...(p.units || []), { id: uid(), imei: newImei.trim(), color: newColor.trim(), storage: newStorage.trim(), cost: unitCost, status: "in_stock" }] } : p));
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: [...(p.units || []), { id: uid(), imei: newImei.trim(), color: newColor.trim(), storage: newStorage.trim(), cost: unitCost, supplier: newSupplier.trim(), grade: newGrade, status: "in_stock" }] } : p));
     setNewImei("");
     setNewColor("");
     setNewStorage("");
     setNewUnitCost("");
+    setNewSupplier("");
+    setNewGrade("");
   };
   const removeUnit = (productId, unitId) => {
     setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: (p.units || []).filter(u => u.id !== unitId) } : p));
@@ -784,7 +831,7 @@ const InventoryTab = ({ products, setProducts }) => {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-        <StatCard label="Total Products" value={products.length} color="#6366f1" />
+        <StatCard label="Total Products" value={products.length} color="#2563eb" />
         <StatCard label="Total Stock Value" value={currency(totalValue)} color="#10b981" />
         <StatCard label="Low Stock" value={lowStock} color="#f59e0b" sub="Below 5 units" />
         <StatCard label="Out of Stock" value={outOfStock} color="#ef4444" />
@@ -798,19 +845,19 @@ const InventoryTab = ({ products, setProducts }) => {
       <div style={{ flex: 1, overflowY: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
           <thead>
-            <tr style={{ borderBottom: "2px solid #2a2a4a", color: "#7070a0", textAlign: "left" }}>
+            <tr style={{ borderBottom: "2px solid #d4d8e0", color: "#6b7280", textAlign: "left" }}>
               <th style={{ padding: "10px 8px" }}>SKU</th><th style={{ padding: "10px 8px" }}>Product</th><th style={{ padding: "10px 8px" }}>Type</th><th style={{ padding: "10px 8px" }}>Category</th>
               <th style={{ padding: "10px 8px", textAlign: "right" }}>Cost</th><th style={{ padding: "10px 8px", textAlign: "right" }}>Price</th>
-              <th style={{ padding: "10px 8px", textAlign: "right" }}>Stock</th><th style={{ padding: "10px 8px", textAlign: "center" }}>Actions</th>
+              <th style={{ padding: "10px 8px", textAlign: "right" }}>Qty</th><th style={{ padding: "10px 8px", textAlign: "center" }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map(p => {
               const stock = getStock(p);
               return (
-                <tr key={p.id} style={{ borderBottom: "1px solid #1e1e38", color: "#c0c0e0" }}>
-                  <td style={{ padding: "10px 8px", fontFamily: "monospace", color: "#8b5cf6" }}>{p.sku}</td>
-                  <td style={{ padding: "10px 8px", fontWeight: 600, color: "#e0e0ff" }}>{p.name}</td>
+                <tr key={p.id} style={{ borderBottom: "1px solid #e5e7eb", color: "#374151" }}>
+                  <td style={{ padding: "10px 8px", fontFamily: "monospace", color: "#3b82f6" }}>{p.sku}</td>
+                  <td style={{ padding: "10px 8px", fontWeight: 600, color: "#111827" }}>{p.name}</td>
                   <td style={{ padding: "10px 8px" }}>
                     {p.serialized ? <Badge color="#f59e0b">Serialized</Badge> : <Badge color="#6b7280">Generic</Badge>}
                   </td>
@@ -821,8 +868,8 @@ const InventoryTab = ({ products, setProducts }) => {
                     <Badge color={stock === 0 ? "#ef4444" : stock < 5 ? "#f59e0b" : "#10b981"}>{stock}</Badge>
                   </td>
                   <td style={{ padding: "10px 8px", textAlign: "center", whiteSpace: "nowrap" }}>
-                    {p.serialized && <button onClick={() => { setUnitsModal(p); setNewImei(""); setNewColor(""); setNewStorage(""); }} style={{ background: "none", border: "none", color: "#f59e0b", cursor: "pointer", marginRight: 6, fontSize: 13, fontWeight: 600 }}>Units</button>}
-                    <button onClick={() => openEdit(p)} style={{ background: "none", border: "none", color: "#6366f1", cursor: "pointer", marginRight: 6, fontSize: 13 }}>Edit</button>
+                    {p.serialized && <button onClick={() => { setUnitsModal(p); setNewImei(""); setNewColor(""); setNewStorage(""); setNewUnitCost(""); setNewSupplier(""); setNewGrade(""); }} style={{ background: "none", border: "none", color: "#f59e0b", cursor: "pointer", marginRight: 6, fontSize: 13, fontWeight: 600 }}>Units</button>}
+                    <button onClick={() => openEdit(p)} style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", marginRight: 6, fontSize: 13 }}>Edit</button>
                     <button onClick={() => del(p.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 13 }}>Del</button>
                   </td>
                 </tr>
@@ -843,11 +890,11 @@ const InventoryTab = ({ products, setProducts }) => {
           <Input label={form.serialized || SERIALIZED_CATEGORIES.includes(form.category) ? "Default Unit Cost (£)" : "Cost Price (£)"} type="number" min={0} value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} />
           <Input label="Selling Price (£)" type="number" min={0} value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
           {!(SERIALIZED_CATEGORIES.includes(form.category) || form.serialized) && (
-            <Input label="Stock Quantity" type="number" min={0} value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} />
+            <Input label="Quantity" type="number" min={0} value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} />
           )}
         </div>
         {(SERIALIZED_CATEGORIES.includes(form.category) || form.serialized) && (
-          <div style={{ background: "#12122a", borderRadius: 10, padding: 14, marginTop: 4, border: "1px solid #2a2a4a" }}>
+          <div style={{ background: "#ffffff", borderRadius: 10, padding: 14, marginTop: 4, border: "1px solid #d4d8e0" }}>
             <div style={{ fontSize: 12, color: "#f59e0b", marginBottom: 0 }}>⚠️ Serialized product — stock is managed per unit. {editing ? 'Use the "Units" button in the table to add/remove individual IMEIs.' : 'After creating, use the "Units" button to add each device with its IMEI.'}</div>
           </div>
         )}
@@ -860,53 +907,59 @@ const InventoryTab = ({ products, setProducts }) => {
       <Modal wide open={!!unitsModal} onClose={() => setUnitsModal(null)} title={currentUnitsProduct ? `Manage Units — ${currentUnitsProduct.name}` : ""}>
         {currentUnitsProduct && (
           <div>
-            <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 0.8fr 0.8fr auto", gap: 10, marginBottom: 6, alignItems: "flex-end" }}>
-              <Input label="IMEI / Serial Number" placeholder="e.g. 353456789012350" value={newImei} onChange={e => setNewImei(e.target.value)} style={{ marginBottom: 0 }}
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr 0.6fr 0.6fr 0.7fr 0.6fr auto", gap: 8, marginBottom: 6, alignItems: "flex-end" }}>
+              <Input label="IMEI / Serial" placeholder="e.g. 353456789012350" value={newImei} onChange={e => setNewImei(e.target.value)} style={{ marginBottom: 0 }}
                 onKeyDown={e => { if (e.key === "Enter") addUnit(currentUnitsProduct.id); }} />
-              <Input label="Colour" placeholder="e.g. Black Titanium" value={newColor} onChange={e => setNewColor(e.target.value)} style={{ marginBottom: 0 }} />
+              <Input label="Colour" placeholder="e.g. Black" value={newColor} onChange={e => setNewColor(e.target.value)} style={{ marginBottom: 0 }} />
               <Input label="Storage" placeholder="e.g. 256GB" value={newStorage} onChange={e => setNewStorage(e.target.value)} style={{ marginBottom: 0 }} />
+              <Select label="Grade" options={[{ value: "", label: "—" }, ...GRADES.map(g => ({ value: g, label: `Grade ${g}` }))]} value={newGrade} onChange={e => setNewGrade(e.target.value)} style={{ marginBottom: 0 }} />
               <Input label="Cost (£)" type="number" min={0} placeholder={String(currentUnitsProduct.cost || 0)} value={newUnitCost} onChange={e => setNewUnitCost(e.target.value)} style={{ marginBottom: 0 }} />
+              <Input label="Supplier" placeholder="e.g. WeBuy" value={newSupplier} onChange={e => setNewSupplier(e.target.value)} style={{ marginBottom: 0 }} />
               <Btn onClick={() => addUnit(currentUnitsProduct.id)} variant="success" style={{ marginBottom: 14 }}>+ Add</Btn>
             </div>
-            <div style={{ fontSize: 11, color: "#505070", marginBottom: 10, marginTop: -4 }}>💡 Leave Cost blank to use the product default ({currency(currentUnitsProduct.cost || 0)})</div>
-            <div style={{ fontSize: 12, color: "#7070a0", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 10, marginTop: -4 }}>💡 Leave Cost blank to use the product default ({currency(currentUnitsProduct.cost || 0)})</div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>
               <Badge color="#10b981">{currentUnitsProduct.units.filter(u => u.status === "in_stock").length} in stock</Badge>
               <span style={{ marginLeft: 8 }}><Badge color="#6b7280">{currentUnitsProduct.units.filter(u => u.status === "sold").length} sold</Badge></span>
-              <span style={{ marginLeft: 8, color: "#505070" }}>{currentUnitsProduct.units.length} total units</span>
+              <span style={{ marginLeft: 8, color: "#9ca3af" }}>{currentUnitsProduct.units.length} total units</span>
             </div>
             <div style={{ maxHeight: 360, overflowY: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
-                  <tr style={{ borderBottom: "2px solid #2a2a4a", color: "#7070a0", textAlign: "left" }}>
+                  <tr style={{ borderBottom: "2px solid #d4d8e0", color: "#6b7280", textAlign: "left" }}>
                     <th style={{ padding: "8px" }}>#</th>
                     <th style={{ padding: "8px" }}>IMEI / Serial</th>
                     <th style={{ padding: "8px" }}>Colour</th>
                     <th style={{ padding: "8px" }}>Storage</th>
+                    <th style={{ padding: "8px" }}>Grade</th>
                     <th style={{ padding: "8px", textAlign: "right" }}>Cost</th>
+                    <th style={{ padding: "8px" }}>Supplier</th>
                     <th style={{ padding: "8px" }}>Status</th>
                     <th style={{ padding: "8px", textAlign: "center" }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {currentUnitsProduct.units.map((u, i) => (
-                    <tr key={u.id} style={{ borderBottom: "1px solid #1e1e38" }}>
-                      <td style={{ padding: "8px", color: "#606080" }}>{i + 1}</td>
+                    <tr key={u.id} style={{ borderBottom: "1px solid #e5e7eb" }}>
+                      <td style={{ padding: "8px", color: "#9ca3af" }}>{i + 1}</td>
                       <td style={{ padding: "8px", fontFamily: "monospace", color: "#f59e0b", fontWeight: 700, fontSize: 14 }}>{u.imei}</td>
-                      <td style={{ padding: "8px", color: "#a78bfa" }}>{u.color || "—"}</td>
-                      <td style={{ padding: "8px", color: "#c0c0e0", fontWeight: 600 }}>{u.storage || "—"}</td>
+                      <td style={{ padding: "8px", color: "#2563eb" }}>{u.color || "—"}</td>
+                      <td style={{ padding: "8px", color: "#374151", fontWeight: 600 }}>{u.storage || "—"}</td>
+                      <td style={{ padding: "8px" }}>{u.grade ? <Badge color={u.grade === "A" ? "#10b981" : u.grade === "B" ? "#3b82f6" : u.grade === "C" ? "#f59e0b" : "#ef4444"}>Grade {u.grade}</Badge> : "—"}</td>
                       <td style={{ padding: "8px", textAlign: "right", color: "#10b981", fontWeight: 600 }}>{currency(u.cost ?? currentUnitsProduct.cost ?? 0)}</td>
+                      <td style={{ padding: "8px", color: "#6b7280" }}>{u.supplier || "—"}</td>
                       <td style={{ padding: "8px" }}>
                         {u.status === "in_stock" ? <Badge color="#10b981">In Stock</Badge> : <Badge color="#6b7280">Sold</Badge>}
                       </td>
                       <td style={{ padding: "8px", textAlign: "center" }}>
                         {u.status === "in_stock" ? (
                           <button onClick={() => removeUnit(currentUnitsProduct.id, u.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 12 }}>Remove</button>
-                        ) : <span style={{ color: "#505070", fontSize: 11 }}>—</span>}
+                        ) : <span style={{ color: "#9ca3af", fontSize: 11 }}>—</span>}
                       </td>
                     </tr>
                   ))}
                   {currentUnitsProduct.units.length === 0 && (
-                    <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#606080" }}>No units yet. Add IMEI/Serial numbers above.</td></tr>
+                    <tr><td colSpan={9} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>No units yet. Add IMEI/Serial numbers above.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -919,10 +972,10 @@ const InventoryTab = ({ products, setProducts }) => {
       <Modal wide open={importModal} onClose={() => setImportModal(false)} title="Import Products from Excel">
         {!importPreview ? (
           <div>
-            <div style={{ background: "#12122a", borderRadius: 10, padding: 16, marginBottom: 16, border: "1px solid #2a2a4a" }}>
-              <div style={{ fontSize: 13, color: "#c0c0e0", fontWeight: 600, marginBottom: 8 }}>📋 How it works</div>
-              <div style={{ fontSize: 12, color: "#9090b8", lineHeight: 1.6 }}>
-                Upload an Excel file (.xlsx) with columns: <span style={{ color: "#a78bfa" }}>Name, SKU, Category, Cost, Price, Stock, IMEI, Colour, Storage, Unit Cost</span>.<br/>
+            <div style={{ background: "#ffffff", borderRadius: 10, padding: 16, marginBottom: 16, border: "1px solid #d4d8e0" }}>
+              <div style={{ fontSize: 13, color: "#374151", fontWeight: 600, marginBottom: 8 }}>📋 How it works</div>
+              <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.6 }}>
+                Upload an Excel file (.xlsx) with columns: <span style={{ color: "#2563eb" }}>Name, SKU, Category, Cost, Price, Stock, IMEI, Colour, Storage, Unit Cost</span>.<br/>
                 • For <strong>generic products</strong> (cases, cables, etc.) — fill in <span style={{ color: "#10b981" }}>Stock</span>, leave IMEI blank.<br/>
                 • For <strong>serialized devices</strong> (phones, AirPods) — one row per physical unit with its <span style={{ color: "#f59e0b" }}>IMEI</span>, Colour, and Storage. Leave Stock blank.<br/>
                 • Multiple rows with the same SKU are merged into one product with multiple units.<br/>
@@ -933,13 +986,13 @@ const InventoryTab = ({ products, setProducts }) => {
             <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
               <Btn variant="ghost" onClick={downloadTemplate}>⬇️ Download Template</Btn>
             </div>
-            <div style={{ border: "2px dashed #2a2a4a", borderRadius: 12, padding: 30, textAlign: "center", background: "#0e0e1a" }}>
+            <div style={{ border: "2px dashed #d4d8e0", borderRadius: 12, padding: 30, textAlign: "center", background: "#f5f7fa" }}>
               <div style={{ fontSize: 36, marginBottom: 8 }}>📊</div>
-              <div style={{ fontSize: 14, color: "#c0c0e0", marginBottom: 14 }}>Choose an Excel file to import</div>
+              <div style={{ fontSize: 14, color: "#374151", marginBottom: 14 }}>Choose an Excel file to import</div>
               <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile}
-                style={{ display: "block", margin: "0 auto", color: "#9090b8", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }} />
+                style={{ display: "block", margin: "0 auto", color: "#6b7280", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }} />
             </div>
-            {importError && <div style={{ marginTop: 14, padding: 12, background: "#ef444422", border: "1px solid #ef4444", borderRadius: 10, color: "#ef4444", fontSize: 13 }}>⚠️ {importError}</div>}
+            {importError && <div style={{ marginTop: 14, padding: 12, background: "#dc262615", border: "1px solid #ef4444", borderRadius: 10, color: "#ef4444", fontSize: 13 }}>⚠️ {importError}</div>}
           </div>
         ) : (
           <div>
@@ -953,10 +1006,10 @@ const InventoryTab = ({ products, setProducts }) => {
                 {importPreview.errors.map((e, i) => <div key={i} style={{ fontSize: 12, color: "#ef4444" }}>• {e}</div>)}
               </div>
             )}
-            <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #2a2a4a", borderRadius: 10 }}>
+            <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #d4d8e0", borderRadius: 10 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                <thead style={{ background: "#12122a", position: "sticky", top: 0 }}>
-                  <tr style={{ color: "#7070a0", textAlign: "left" }}>
+                <thead style={{ background: "#ffffff", position: "sticky", top: 0 }}>
+                  <tr style={{ color: "#6b7280", textAlign: "left" }}>
                     <th style={{ padding: "10px 8px" }}>SKU</th>
                     <th style={{ padding: "10px 8px" }}>Name</th>
                     <th style={{ padding: "10px 8px" }}>Type</th>
@@ -966,11 +1019,11 @@ const InventoryTab = ({ products, setProducts }) => {
                 </thead>
                 <tbody>
                   {importPreview.products.map((p, i) => (
-                    <tr key={i} style={{ borderTop: "1px solid #1e1e38" }}>
-                      <td style={{ padding: "8px", fontFamily: "monospace", color: "#8b5cf6" }}>{p.sku}</td>
-                      <td style={{ padding: "8px", color: "#e0e0ff", fontWeight: 600 }}>{p.name}</td>
+                    <tr key={i} style={{ borderTop: "1px solid #e5e7eb" }}>
+                      <td style={{ padding: "8px", fontFamily: "monospace", color: "#3b82f6" }}>{p.sku}</td>
+                      <td style={{ padding: "8px", color: "#111827", fontWeight: 600 }}>{p.name}</td>
                       <td style={{ padding: "8px" }}>{p.serialized ? <Badge color="#f59e0b">Serialized</Badge> : <Badge color="#6b7280">Generic</Badge>}</td>
-                      <td style={{ padding: "8px", textAlign: "right", color: "#c0c0e0" }}>{currency(p.price)}</td>
+                      <td style={{ padding: "8px", textAlign: "right", color: "#374151" }}>{currency(p.price)}</td>
                       <td style={{ padding: "8px", textAlign: "right", color: "#10b981", fontWeight: 700 }}>{p.serialized ? p.units.length : p.stock}</td>
                     </tr>
                   ))}
@@ -1045,7 +1098,7 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-        <StatCard label="Total Sales" value={sales.length} color="#6366f1" />
+        <StatCard label="Total Sales" value={sales.length} color="#2563eb" />
         <StatCard label="Active Revenue" value={currency(totalActive)} color="#10b981" />
         <StatCard label="Refunded" value={sales.filter(s => s.refunded).length} color="#ef4444" sub={currency(totalRefunded)} />
       </div>
@@ -1061,7 +1114,7 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
       <div style={{ flex: 1, overflowY: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
           <thead>
-            <tr style={{ borderBottom: "2px solid #2a2a4a", color: "#7070a0", textAlign: "left" }}>
+            <tr style={{ borderBottom: "2px solid #d4d8e0", color: "#6b7280", textAlign: "left" }}>
               <th style={{ padding: "10px 8px" }}>Receipt #</th>
               <th style={{ padding: "10px 8px" }}>Date</th>
               <th style={{ padding: "10px 8px" }}>Customer</th>
@@ -1074,19 +1127,19 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
             {filtered.map(s => {
               const cust = customers.find(c => c.id === s.customer);
               return (
-                <tr key={s.id} onClick={() => setSelected(s)} style={{ borderBottom: "1px solid #1e1e38", color: "#c0c0e0", cursor: "pointer", opacity: s.refunded ? 0.6 : 1 }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#1a1a3a"}
+                <tr key={s.id} onClick={() => setSelected(s)} style={{ borderBottom: "1px solid #e5e7eb", color: "#374151", cursor: "pointer", opacity: s.refunded ? 0.6 : 1 }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#eef2ff"}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <td style={{ padding: "10px 8px", fontFamily: "monospace", color: "#8b5cf6", fontWeight: 700 }}>#{s.id.toUpperCase()}</td>
+                  <td style={{ padding: "10px 8px", fontFamily: "monospace", color: "#3b82f6", fontWeight: 700 }}>#{s.id.toUpperCase()}</td>
                   <td style={{ padding: "10px 8px" }}>{new Date(s.date).toLocaleString("en-GB")}</td>
-                  <td style={{ padding: "10px 8px" }}>{cust ? cust.name : <span style={{ color: "#505070" }}>Walk-in</span>}</td>
-                  <td style={{ padding: "10px 8px", color: "#9090b8" }}>{s.items.reduce((t, i) => t + i.qty, 0)} item(s)</td>
+                  <td style={{ padding: "10px 8px" }}>{cust ? cust.name : <span style={{ color: "#9ca3af" }}>Walk-in</span>}</td>
+                  <td style={{ padding: "10px 8px", color: "#6b7280" }}>{s.items.reduce((t, i) => t + i.qty, 0)} item(s)</td>
                   <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, color: s.refunded ? "#ef4444" : "#10b981" }}>{currency(s.total)}</td>
                   <td style={{ padding: "10px 8px" }}>{s.refunded ? <Badge color="#ef4444">Refunded</Badge> : <Badge color="#10b981">Completed</Badge>}</td>
                 </tr>
               );
             })}
-            {filtered.length === 0 && <tr><td colSpan={6} style={{ padding: 40, textAlign: "center", color: "#606080" }}>No sales found</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={6} style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>No sales found</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1097,28 +1150,28 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
           const cust = customers.find(c => c.id === selected.customer);
           return (
             <div>
-              <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16, paddingBottom: 14, borderBottom: "1px solid #2a2a4a" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16, paddingBottom: 14, borderBottom: "1px solid #d4d8e0" }}>
                 <div>
-                  <div style={{ fontSize: 11, color: "#7070a0" }}>Date & Time</div>
-                  <div style={{ fontSize: 14, color: "#e0e0ff", fontWeight: 600 }}>{new Date(selected.date).toLocaleString("en-GB")}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Date & Time</div>
+                  <div style={{ fontSize: 14, color: "#111827", fontWeight: 600 }}>{new Date(selected.date).toLocaleString("en-GB")}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: "#7070a0" }}>Customer</div>
-                  <div style={{ fontSize: 14, color: "#e0e0ff", fontWeight: 600 }}>{cust ? `${cust.name} · ${cust.phone || "—"}` : "Walk-in Customer"}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Customer</div>
+                  <div style={{ fontSize: 14, color: "#111827", fontWeight: 600 }}>{cust ? `${cust.name} · ${cust.phone || "—"}` : "Walk-in Customer"}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: "#7070a0" }}>Status</div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Status</div>
                   <div>{selected.refunded ? <Badge color="#ef4444">Refunded {new Date(selected.refundDate).toLocaleDateString("en-GB")}</Badge> : <Badge color="#10b981">Completed</Badge>}</div>
                 </div>
               </div>
 
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 12, color: "#7070a0", marginBottom: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Items Sold</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Items Sold</div>
                 {selected.items.map((item, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "10px 12px", background: "#12122a", border: "1px solid #2a2a4a", borderRadius: 10, marginBottom: 6 }}>
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "10px 12px", background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 10, marginBottom: 6 }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "#e0e0ff" }}>{item.qty}× {item.name}</div>
-                      {(item.color || item.storage) && <div style={{ fontSize: 12, color: "#a78bfa", marginTop: 2 }}>{[item.color, item.storage].filter(Boolean).join(" · ")}</div>}
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{item.qty}× {item.name}</div>
+                      {(item.color || item.storage || item.grade) && <div style={{ fontSize: 12, color: "#2563eb", marginTop: 2 }}>{[item.color, item.storage, item.grade ? `Grade ${item.grade}` : ""].filter(Boolean).join(" · ")}</div>}
                       {item.imei && <div style={{ fontSize: 11, color: "#f59e0b", fontFamily: "monospace", marginTop: 2 }}>IMEI/SN: {item.imei}</div>}
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>{currency(item.price * item.qty)}</div>
@@ -1126,10 +1179,10 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
                 ))}
               </div>
 
-              <div style={{ borderTop: "1px solid #2a2a4a", paddingTop: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#9090b8", marginBottom: 4 }}><span>Subtotal</span><span>{currency(selected.subtotal)}</span></div>
-                {selected.discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#ef4444", marginBottom: 4 }}><span>Discount ({selected.discount}%)</span><span>-{currency(selected.discountAmt)}</span></div>}
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 800, color: "#e0e0ff", marginTop: 6 }}><span>Total</span><span>{currency(selected.total)}</span></div>
+              <div style={{ borderTop: "1px solid #d4d8e0", paddingTop: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b7280", marginBottom: 4 }}><span>Subtotal</span><span>{currency(selected.subtotal)}</span></div>
+                {selected.discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#ef4444", marginBottom: 4 }}><span>Discount</span><span>-{currency(selected.discountAmt)}</span></div>}
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 800, color: "#111827", marginTop: 6 }}><span>Total</span><span>{currency(selected.total)}</span></div>
               </div>
 
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18, flexWrap: "wrap" }}>
@@ -1181,20 +1234,20 @@ const CustomersTab = ({ customers, setCustomers, sales }) => {
           <Card key={c.id} style={{ cursor: "pointer" }} onClick={() => openEdit(c)}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#e0e0ff" }}>{c.name}</div>
-                <div style={{ fontSize: 12, color: "#7070a0", marginTop: 3 }}>📱 {c.phone || "—"} · ✉️ {c.email || "—"}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>{c.name}</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>📱 {c.phone || "—"} · ✉️ {c.email || "—"}</div>
               </div>
               <button onClick={e => { e.stopPropagation(); del(c.id); }} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 12 }}>✕</button>
             </div>
             <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
-              <div><div style={{ fontSize: 11, color: "#7070a0" }}>Spent</div><div style={{ fontSize: 15, fontWeight: 700, color: "#10b981" }}>{currency(getSpent(c.id))}</div></div>
-              <div><div style={{ fontSize: 11, color: "#7070a0" }}>Visits</div><div style={{ fontSize: 15, fontWeight: 700, color: "#6366f1" }}>{getVisits(c.id)}</div></div>
-              <div><div style={{ fontSize: 11, color: "#7070a0" }}>Since</div><div style={{ fontSize: 15, fontWeight: 700, color: "#9090b8" }}>{c.joined || "—"}</div></div>
+              <div><div style={{ fontSize: 11, color: "#6b7280" }}>Spent</div><div style={{ fontSize: 15, fontWeight: 700, color: "#10b981" }}>{currency(getSpent(c.id))}</div></div>
+              <div><div style={{ fontSize: 11, color: "#6b7280" }}>Visits</div><div style={{ fontSize: 15, fontWeight: 700, color: "#2563eb" }}>{getVisits(c.id)}</div></div>
+              <div><div style={{ fontSize: 11, color: "#6b7280" }}>Since</div><div style={{ fontSize: 15, fontWeight: 700, color: "#6b7280" }}>{c.joined || "—"}</div></div>
             </div>
-            {c.notes && <div style={{ fontSize: 12, color: "#606080", marginTop: 8, fontStyle: "italic" }}>📝 {c.notes}</div>}
+            {c.notes && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 8, fontStyle: "italic" }}>📝 {c.notes}</div>}
           </Card>
         ))}
-        {filtered.length === 0 && <div style={{ gridColumn: "1/-1", textAlign: "center", color: "#606080", padding: 40 }}>No customers yet</div>}
+        {filtered.length === 0 && <div style={{ gridColumn: "1/-1", textAlign: "center", color: "#9ca3af", padding: 40 }}>No customers yet</div>}
       </div>
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Customer" : "Add Customer"}>
         <Input label="Full Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
@@ -1256,7 +1309,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
       (r.issue || "").toLowerCase().includes(q) ||
       (cust && (cust.name.toLowerCase().includes(q) || (cust.phone || "").includes(repairSearch)));
   });
-  const statusColors = { "Received": "#6366f1", "Diagnosing": "#a855f7", "Waiting for Parts": "#f59e0b", "In Repair": "#3b82f6", "Testing": "#06b6d4", "Ready for Pickup": "#10b981", "Completed": "#6b7280" };
+  const statusColors = { "Received": "#2563eb", "Diagnosing": "#a855f7", "Waiting for Parts": "#f59e0b", "In Repair": "#3b82f6", "Testing": "#06b6d4", "Ready for Pickup": "#10b981", "Completed": "#6b7280" };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -1278,46 +1331,46 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, flexWrap: "wrap" }}>
                 <div style={{ flex: 1, minWidth: 200 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: "#e0e0ff" }}>{r.device}</span>
-                    <Badge color={statusColors[r.status] || "#6366f1"}>{r.status}</Badge>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>{r.device}</span>
+                    <Badge color={statusColors[r.status] || "#2563eb"}>{r.status}</Badge>
                   </div>
                   {r.imei && <div style={{ fontSize: 12, color: "#f59e0b", fontFamily: "monospace", marginBottom: 3 }}>IMEI/SN: {r.imei}</div>}
-                  <div style={{ fontSize: 13, color: "#9090b8" }}>Issue: {r.issue}</div>
-                  {cust && <div style={{ fontSize: 12, color: "#7070a0", marginTop: 3 }}>Customer: {cust.name} · {cust.phone}</div>}
-                  {r.notes && <div style={{ fontSize: 12, color: "#606080", marginTop: 3 }}>📝 {r.notes}</div>}
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>Issue: {r.issue}</div>
+                  {cust && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>Customer: {cust.name} · {cust.phone}</div>}
+                  {r.notes && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>📝 {r.notes}</div>}
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 11, color: "#7070a0" }}>Date In</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#c0c0e0" }}>{r.dateIn}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Date In</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{r.dateIn}</div>
                   {r.cost > 0 && <div style={{ fontSize: 15, fontWeight: 700, color: "#10b981", marginTop: 4 }}>{currency(r.cost)}</div>}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
                 {REPAIR_STATUSES.map(s => (
                   <button key={s} onClick={e => { e.stopPropagation(); updateStatus(r.id, s); }}
-                    style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, border: `1px solid ${r.status === s ? statusColors[s] : "#2a2a4a"}`, background: r.status === s ? `${statusColors[s]}22` : "transparent", color: r.status === s ? statusColors[s] : "#505070", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+                    style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, border: `1px solid ${r.status === s ? statusColors[s] : "#d4d8e0"}`, background: r.status === s ? `${statusColors[s]}22` : "transparent", color: r.status === s ? statusColors[s] : "#505070", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
                     {s}
                   </button>
                 ))}
               </div>
-              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", paddingTop: 10, borderTop: "1px solid #1e1e38" }}>
+              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", paddingTop: 10, borderTop: "1px solid #e5e7eb" }}>
                 <button onClick={e => { e.stopPropagation(); printReceipt({ type: "repair", data: r, customer: cust }); }}
-                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #6366f1", background: "#6366f122", color: "#a78bfa", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🖨 Print Receipt</button>
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #2563eb", background: "#2563eb15", color: "#2563eb", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🖨 Print Receipt</button>
                 <button onClick={e => { e.stopPropagation(); sendWhatsApp({ type: "repair", data: r, customer: cust }, cust?.phone); }}
-                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #10b981", background: "#10b98122", color: "#10b981", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>💬 WhatsApp</button>
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #10b981", background: "#05966915", color: "#10b981", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>💬 WhatsApp</button>
                 <button onClick={e => { e.stopPropagation(); sendEmail({ type: "repair", data: r, customer: cust }, cust?.email); }}
-                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #f59e0b", background: "#f59e0b22", color: "#f59e0b", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>✉ Email</button>
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #f59e0b", background: "#d9770615", color: "#f59e0b", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>✉ Email</button>
               </div>
             </Card>
           );
         })}
-        {filtered.length === 0 && <div style={{ textAlign: "center", color: "#606080", padding: 40 }}>No repairs found</div>}
+        {filtered.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 40 }}>No repairs found</div>}
       </div>
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Repair" : "New Repair"}>
         {/* Customer mode toggle */}
         <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-          <button onClick={() => setCustomerMode("existing")} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: `1px solid ${customerMode === "existing" ? "#6366f1" : "#2a2a4a"}`, background: customerMode === "existing" ? "#6366f122" : "transparent", color: customerMode === "existing" ? "#a78bfa" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>Existing Customer</button>
-          <button onClick={() => setCustomerMode("new")} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: `1px solid ${customerMode === "new" ? "#10b981" : "#2a2a4a"}`, background: customerMode === "new" ? "#10b98122" : "transparent", color: customerMode === "new" ? "#10b981" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>+ New Customer</button>
+          <button onClick={() => setCustomerMode("existing")} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: `1px solid ${customerMode === "existing" ? "#2563eb" : "#d4d8e0"}`, background: customerMode === "existing" ? "#2563eb15" : "transparent", color: customerMode === "existing" ? "#2563eb" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>Existing Customer</button>
+          <button onClick={() => setCustomerMode("new")} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: `1px solid ${customerMode === "new" ? "#10b981" : "#d4d8e0"}`, background: customerMode === "new" ? "#05966915" : "transparent", color: customerMode === "new" ? "#10b981" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>+ New Customer</button>
         </div>
         {customerMode === "existing" ? (
           <Select label="Customer" options={[{ value: "", label: "Select customer…" }, ...customers.map(c => ({ value: c.id, label: `${c.name}${c.phone ? ` — ${c.phone}` : ""}` }))]} value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} />
@@ -1378,69 +1431,69 @@ const ReportsTab = ({ sales, products, repairs }) => {
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflowY: "auto" }}>
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         {[["all", "All Time"], ["today", "Today"], ["week", "This Week"], ["month", "This Month"]].map(([v, l]) => (
-          <button key={v} onClick={() => setRange(v)} style={{ padding: "8px 16px", borderRadius: 10, border: `1px solid ${range === v ? "#6366f1" : "#2a2a4a"}`, background: range === v ? "#6366f122" : "transparent", color: range === v ? "#8b5cf6" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{l}</button>
+          <button key={v} onClick={() => setRange(v)} style={{ padding: "8px 16px", borderRadius: 10, border: `1px solid ${range === v ? "#2563eb" : "#d4d8e0"}`, background: range === v ? "#2563eb15" : "transparent", color: range === v ? "#3b82f6" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{l}</button>
         ))}
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
         <StatCard label="Total Revenue" value={currency(revenue)} color="#10b981" sub={`${filtered.length} transactions`} />
         <StatCard label="Total Cost" value={currency(totalCost)} color="#ef4444" sub="What you paid" />
-        <StatCard label="Net Profit" value={currency(profit)} color="#a78bfa" sub={`${profitMargin.toFixed(1)}% margin`} />
+        <StatCard label="Net Profit" value={currency(profit)} color="#2563eb" sub={`${profitMargin.toFixed(1)}% margin`} />
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <StatCard label="Items Sold" value={itemsSold} color="#6366f1" />
-        <StatCard label="Average Sale" value={currency(avgSale)} color="#8b5cf6" />
+        <StatCard label="Items Sold" value={itemsSold} color="#2563eb" />
+        <StatCard label="Average Sale" value={currency(avgSale)} color="#3b82f6" />
         <StatCard label="Repair Revenue" value={currency(repairRev)} color="#f59e0b" />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <Card>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#e0e0ff", marginBottom: 14 }}>Revenue (Last 7 Days)</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 14 }}>Revenue (Last 7 Days)</div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 140 }}>
             {Object.entries(dailyRev).map(([day, val]) => (
               <div key={day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                <div style={{ fontSize: 10, color: "#8b5cf6", fontWeight: 700 }}>{val > 0 ? `£${Math.round(val)}` : ""}</div>
-                <div style={{ width: "100%", borderRadius: "6px 6px 0 0", background: "linear-gradient(180deg, #6366f1, #8b5cf6)", height: `${Math.max((val / maxDailyRev) * 120, 4)}px`, transition: "height 0.3s" }} />
-                <div style={{ fontSize: 10, color: "#606080" }}>{day.slice(5)}</div>
+                <div style={{ fontSize: 10, color: "#3b82f6", fontWeight: 700 }}>{val > 0 ? `£${Math.round(val)}` : ""}</div>
+                <div style={{ width: "100%", borderRadius: "6px 6px 0 0", background: "linear-gradient(180deg, #2563eb, #3b82f6)", height: `${Math.max((val / maxDailyRev) * 120, 4)}px`, transition: "height 0.3s" }} />
+                <div style={{ fontSize: 10, color: "#9ca3af" }}>{day.slice(5)}</div>
               </div>
             ))}
           </div>
         </Card>
         <Card>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#e0e0ff", marginBottom: 14 }}>Top Selling Products</div>
-          {topProducts.length === 0 && <div style={{ color: "#606080", fontSize: 13 }}>No sales data yet</div>}
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 14 }}>Top Selling Products</div>
+          {topProducts.length === 0 && <div style={{ color: "#9ca3af", fontSize: 13 }}>No sales data yet</div>}
           {topProducts.map(([name, qty], i) => (
             <div key={name} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <span style={{ width: 22, height: 22, borderRadius: 6, background: `${["#6366f1", "#8b5cf6", "#a855f7", "#c084fc", "#d8b4fe"][i]}33`, color: ["#6366f1", "#8b5cf6", "#a855f7", "#c084fc", "#d8b4fe"][i], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{i + 1}</span>
-              <span style={{ flex: 1, fontSize: 13, color: "#c0c0e0" }}>{name}</span>
-              <Badge color="#8b5cf6">{qty} sold</Badge>
+              <span style={{ width: 22, height: 22, borderRadius: 6, background: `${["#2563eb", "#3b82f6", "#a855f7", "#c084fc", "#d8b4fe"][i]}33`, color: ["#2563eb", "#3b82f6", "#a855f7", "#c084fc", "#d8b4fe"][i], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{i + 1}</span>
+              <span style={{ flex: 1, fontSize: 13, color: "#374151" }}>{name}</span>
+              <Badge color="#3b82f6">{qty} sold</Badge>
             </div>
           ))}
         </Card>
         <Card style={{ gridColumn: "1/-1" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#e0e0ff", marginBottom: 14 }}>Recent Sales</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 14 }}>Recent Sales</div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
             <thead>
-              <tr style={{ borderBottom: "2px solid #2a2a4a", color: "#7070a0", textAlign: "left" }}>
+              <tr style={{ borderBottom: "2px solid #d4d8e0", color: "#6b7280", textAlign: "left" }}>
                 <th style={{ padding: "8px" }}>Date</th><th style={{ padding: "8px" }}>Items</th><th style={{ padding: "8px" }}>Variant / IMEI</th><th style={{ padding: "8px", textAlign: "right" }}>Total</th>
               </tr>
             </thead>
             <tbody>
               {filtered.slice(-10).reverse().map(s => (
-                <tr key={s.id} style={{ borderBottom: "1px solid #1e1e38", color: "#c0c0e0" }}>
+                <tr key={s.id} style={{ borderBottom: "1px solid #e5e7eb", color: "#374151" }}>
                   <td style={{ padding: "8px" }}>{new Date(s.date).toLocaleString()}</td>
                   <td style={{ padding: "8px" }}>{s.items.map(i => `${i.qty}x ${i.name}`).join(", ")}</td>
                   <td style={{ padding: "8px", fontSize: 11 }}>
                     {s.items.filter(i => i.imei).map((i, idx) => (
                       <div key={idx} style={{ marginBottom: 2 }}>
-                        {(i.color || i.storage) && <span style={{ color: "#a78bfa" }}>{[i.color, i.storage].filter(Boolean).join(" · ")} </span>}
+                        {(i.color || i.storage) && <span style={{ color: "#2563eb" }}>{[i.color, i.storage, i.grade ? `Grade ${i.grade}` : ""].filter(Boolean).join(" · ")} </span>}
                         <span style={{ fontFamily: "monospace", color: "#f59e0b" }}>{i.imei}</span>
                       </div>
                     ))}
-                    {!s.items.some(i => i.imei) && <span style={{ color: "#505070" }}>—</span>}
+                    {!s.items.some(i => i.imei) && <span style={{ color: "#9ca3af" }}>—</span>}
                   </td>
                   <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: "#10b981" }}>{currency(s.total)}</td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#606080" }}>No sales recorded yet</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>No sales recorded yet</td></tr>}
             </tbody>
           </table>
         </Card>
@@ -1475,31 +1528,31 @@ const LoginScreen = ({ onLogin }) => {
   };
 
   return (
-    <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0e0e1a 0%, #1a1a2e 100%)", fontFamily: "'DM Sans', sans-serif" }}>
+    <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%)", fontFamily: "'DM Sans', sans-serif" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-      <div style={{ background: "linear-gradient(145deg, #1a1a2e, #14142a)", border: "1px solid #2a2a4a", borderRadius: 20, padding: 40, width: 380, maxWidth: "92vw", boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}>
+      <div style={{ background: "linear-gradient(145deg, #ffffff, #f8f9fc)", border: "1px solid #d4d8e0", borderRadius: 20, padding: 40, width: 380, maxWidth: "92vw", boxShadow: "0 24px 64px rgba(0,0,0,0.3)" }}>
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div style={{ fontSize: 42, marginBottom: 8 }}>📱</div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#e0e0ff" }}>Signature Phones</h1>
-          <div style={{ fontSize: 12, color: "#6366f1", fontWeight: 600, marginTop: 4, letterSpacing: 2 }}>POS SYSTEM</div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#111827" }}>Signature Phones</h1>
+          <div style={{ fontSize: 12, color: "#2563eb", fontWeight: 600, marginTop: 4, letterSpacing: 2 }}>POS SYSTEM</div>
         </div>
         <form onSubmit={handleLogin}>
           <div style={{ marginBottom: 14 }}>
-            <label style={{ display: "block", fontSize: 12, color: "#9090b8", marginBottom: 6 }}>Email</label>
+            <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6 }}>Email</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus
-              style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a2a4a", background: "#12122a", color: "#e0e0ff", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+              style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
           </div>
           <div style={{ marginBottom: 18 }}>
-            <label style={{ display: "block", fontSize: 12, color: "#9090b8", marginBottom: 6 }}>Password</label>
+            <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6 }}>Password</label>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} required
-              style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a2a4a", background: "#12122a", color: "#e0e0ff", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+              style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
           </div>
-          {error && <div style={{ background: "#ef444422", border: "1px solid #ef4444", color: "#ef4444", padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 14 }}>⚠ {error}</div>}
-          <button type="submit" disabled={loading} style={{ width: "100%", padding: "12px 0", borderRadius: 10, border: "none", background: loading ? "#444" : "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", fontSize: 15, fontWeight: 700, cursor: loading ? "wait" : "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+          {error && <div style={{ background: "#dc262615", border: "1px solid #ef4444", color: "#ef4444", padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 14 }}>⚠ {error}</div>}
+          <button type="submit" disabled={loading} style={{ width: "100%", padding: "12px 0", borderRadius: 10, border: "none", background: loading ? "#444" : "linear-gradient(135deg, #2563eb, #3b82f6)", color: "#fff", fontSize: 15, fontWeight: 700, cursor: loading ? "wait" : "pointer", fontFamily: "'DM Sans', sans-serif" }}>
             {loading ? "Signing in…" : "Sign In"}
           </button>
         </form>
-        <div style={{ textAlign: "center", marginTop: 18, fontSize: 11, color: "#505070" }}>Authorised personnel only</div>
+        <div style={{ textAlign: "center", marginTop: 18, fontSize: 11, color: "#9ca3af" }}>Authorised personnel only</div>
       </div>
     </div>
   );
@@ -1515,7 +1568,7 @@ export default function PhoneShopPOS() {
   }, []);
 
   if (authChecking) return (
-    <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0e0e1a", color: "#8b5cf6", fontFamily: "'DM Sans', sans-serif", fontSize: 16 }}>
+    <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f7fa", color: "#3b82f6", fontFamily: "'DM Sans', sans-serif", fontSize: 16 }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
       Loading…
     </div>
@@ -1557,38 +1610,38 @@ function MainApp({ user }) {
   };
 
   if (!loaded) return (
-    <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0e0e1a", color: "#8b5cf6", fontFamily: "'DM Sans', sans-serif", fontSize: 18 }}>
+    <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f7fa", color: "#3b82f6", fontFamily: "'DM Sans', sans-serif", fontSize: 18 }}>
       <div style={{ textAlign: "center" }}><div style={{ fontSize: 48, marginBottom: 12 }}>📱</div>Loading Phone Shop POS…</div>
     </div>
   );
 
   return (
-    <div style={{ height: "100vh", display: "flex", fontFamily: "'DM Sans', sans-serif", background: "#0e0e1a", color: "#c0c0e0", overflow: "hidden" }}>
+    <div style={{ height: "100vh", display: "flex", fontFamily: "'DM Sans', sans-serif", background: "#f5f7fa", color: "#374151", overflow: "hidden" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-      <div style={{ width: sidebarOpen ? 220 : 64, flexShrink: 0, background: "linear-gradient(180deg, #12122a, #0e0e1a)", borderRight: "1px solid #1e1e38", display: "flex", flexDirection: "column", transition: "width 0.3s", overflow: "hidden" }}>
-        <div style={{ padding: sidebarOpen ? "20px 18px" : "20px 12px", borderBottom: "1px solid #1e1e38", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setSidebarOpen(!sidebarOpen)}>
+      <div style={{ width: sidebarOpen ? 220 : 64, flexShrink: 0, background: "linear-gradient(180deg, #f0f2f5, #e8ecf0)", borderRight: "1px solid #e5e7eb", display: "flex", flexDirection: "column", transition: "width 0.3s", overflow: "hidden" }}>
+        <div style={{ padding: sidebarOpen ? "20px 18px" : "20px 12px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setSidebarOpen(!sidebarOpen)}>
           <span style={{ fontSize: 28 }}>📱</span>
-          {sidebarOpen && <div><div style={{ fontSize: 16, fontWeight: 800, color: "#e0e0ff", whiteSpace: "nowrap" }}>Phone Shop</div><div style={{ fontSize: 11, color: "#6366f1", fontWeight: 600 }}>POS SYSTEM</div></div>}
+          {sidebarOpen && <div><div style={{ fontSize: 16, fontWeight: 800, color: "#111827", whiteSpace: "nowrap" }}>Phone Shop</div><div style={{ fontSize: 11, color: "#2563eb", fontWeight: 600 }}>POS SYSTEM</div></div>}
         </div>
         <nav style={{ flex: 1, padding: "12px 8px" }}>
           {TABS.map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "11px 14px", marginBottom: 4, borderRadius: 12, border: "none", background: tab === t ? "linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.1))" : "transparent", color: tab === t ? "#a78bfa" : "#6060a0", cursor: "pointer", fontSize: 14, fontWeight: tab === t ? 700 : 500, fontFamily: "'DM Sans', sans-serif", textAlign: "left", transition: "all 0.2s", borderLeft: tab === t ? "3px solid #8b5cf6" : "3px solid transparent" }}>
+            <button key={t} onClick={() => setTab(t)} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "11px 14px", marginBottom: 4, borderRadius: 12, border: "none", background: tab === t ? "linear-gradient(135deg, rgba(37,99,235,0.1), rgba(59,130,246,0.06))" : "transparent", color: tab === t ? "#2563eb" : "#6060a0", cursor: "pointer", fontSize: 14, fontWeight: tab === t ? 700 : 500, fontFamily: "'DM Sans', sans-serif", textAlign: "left", transition: "all 0.2s", borderLeft: tab === t ? "3px solid #3b82f6" : "3px solid transparent" }}>
               <svg width={20} height={20} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d={TAB_ICONS[t]} /></svg>
               {sidebarOpen && <span style={{ whiteSpace: "nowrap" }}>{TAB_LABELS[t]}</span>}
             </button>
           ))}
         </nav>
-        {sidebarOpen && <div style={{ padding: "12px 14px", borderTop: "1px solid #1e1e38" }}>
-          <div style={{ fontSize: 11, color: "#7070a0", marginBottom: 6, wordBreak: "break-all" }}>👤 {user.email}</div>
+        {sidebarOpen && <div style={{ padding: "12px 14px", borderTop: "1px solid #e5e7eb" }}>
+          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6, wordBreak: "break-all" }}>👤 {user.email}</div>
           <button onClick={() => signOut(auth)} style={{ fontSize: 12, color: "#ef4444", background: "none", border: "1px solid #ef444466", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6 }}>🚪 Sign Out</button>
           <br />
-          <button onClick={resetAll} style={{ fontSize: 11, color: "#505070", background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>🔄 Reset All Data</button>
+          <button onClick={resetAll} style={{ fontSize: 11, color: "#9ca3af", background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>🔄 Reset All Data</button>
         </div>}
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <header style={{ padding: "16px 24px", borderBottom: "1px solid #1e1e38", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#e0e0ff" }}>{TAB_LABELS[tab]}</h1>
-          <div style={{ fontSize: 13, color: "#606080" }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
+        <header style={{ padding: "16px 24px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#111827" }}>{TAB_LABELS[tab]}</h1>
+          <div style={{ fontSize: 13, color: "#9ca3af" }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
         </header>
         <main style={{ flex: 1, padding: 20, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           {tab === "pos" && <POSTab products={products} setProducts={setProducts} sales={sales} setSales={setSales} customers={customers} />}
