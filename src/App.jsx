@@ -206,6 +206,7 @@ const buildReceiptHTML = ({ type, data, customer }) => {
   </div>
   <table class="items-table"><tbody>${itemsHTML}</tbody></table>
   <table class="totals-table"><tbody>${totalsHTML}</tbody></table>
+  ${data.payment ? `<div style="font-size:12px;color:#333;margin-top:8px;padding-top:8px;border-top:1px dashed #666"><strong>Payment:</strong> ${data.payment === "mix" ? `Cash £${(data.cashPaid || 0).toFixed(2)} + Card £${(data.cardPaid || 0).toFixed(2)}` : data.payment === "card" ? "Card" : "Cash"}</div>` : ""}
   <div class="thanks">${isSale ? "Thank you for your purchase!" : "Thank you for choosing us for your repair."}</div>
   <div class="terms">
     <h3>${termsTitle}</h3>
@@ -246,6 +247,9 @@ const buildReceiptText = ({ type, data, customer }) => {
     L.push("─────────────────────");
     L.push(`*Repair Cost: £${(data.cost || 0).toFixed(2)}*`);
   }
+  if (data.payment) {
+    L.push(`Payment: ${data.payment === "mix" ? `Cash £${(data.cashPaid || 0).toFixed(2)} + Card £${(data.cardPaid || 0).toFixed(2)}` : data.payment === "card" ? "Card" : "Cash"}`);
+  }
   L.push("");
   L.push(isSale ? "Thank you for your purchase!" : "Thank you for choosing SP Phones.");
   L.push("");
@@ -268,20 +272,49 @@ const printReceipt = (params) => {
   win.document.close();
 };
 
-// Send via WhatsApp (opens WhatsApp with pre-filled message)
-const sendWhatsApp = (params, phone) => {
-  const text = encodeURIComponent(buildReceiptText(params));
-  const cleanPhone = (phone || "").replace(/[^0-9]/g, "");
-  const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${text}` : `https://wa.me/?text=${text}`;
-  window.open(url, "_blank");
+// Generate receipt as downloadable HTML file
+const downloadReceiptFile = (params) => {
+  const html = buildReceiptHTML(params);
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `receipt-${params.data.id.toUpperCase()}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
 };
 
-// Send via Email (opens email client with pre-filled message)
-const sendEmail = (params, email) => {
-  const subject = encodeURIComponent(`${params.type === "sale" ? "Sales" : "Repair"} Receipt #${params.data.id.toUpperCase()} — ${SHOP.name}`);
-  const body = encodeURIComponent(buildReceiptText(params));
-  window.location.href = `mailto:${email || ""}?subject=${subject}&body=${body}`;
+// Share receipt as file (uses Web Share API on mobile/iPad, falls back to download)
+const shareReceiptFile = async (params, method, contact) => {
+  const html = buildReceiptHTML(params);
+  const receiptName = `receipt-${params.data.id.toUpperCase()}.html`;
+  const file = new File([html], receiptName, { type: "text/html" });
+
+  // Try Web Share API (works on iPad/iPhone Safari)
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ title: `${params.type === "sale" ? "Sales" : "Repair"} Receipt — ${SHOP.name}`, files: [file] });
+      return;
+    } catch (e) { if (e.name === "AbortError") return; }
+  }
+
+  // Fallback: download file + open WhatsApp/Email with text summary
+  downloadReceiptFile(params);
+  if (method === "whatsapp") {
+    const text = encodeURIComponent(buildReceiptText(params) + "\n\n📎 Receipt file downloaded — please attach it to this message.");
+    const cleanPhone = (contact || "").replace(/[^0-9]/g, "");
+    const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${text}` : `https://wa.me/?text=${text}`;
+    window.open(url, "_blank");
+  } else if (method === "email") {
+    const subject = encodeURIComponent(`${params.type === "sale" ? "Sales" : "Repair"} Receipt #${params.data.id.toUpperCase()} — ${SHOP.name}`);
+    const body = encodeURIComponent(buildReceiptText(params) + "\n\n📎 Receipt file downloaded — please attach it to this email.");
+    window.location.href = `mailto:${contact || ""}?subject=${subject}&body=${body}`;
+  }
 };
+
+// Shorthand wrappers
+const sendWhatsApp = (params, phone) => shareReceiptFile(params, "whatsapp", phone);
+const sendEmail = (params, email) => shareReceiptFile(params, "email", email);
 
 const SAMPLE_PRODUCTS = [
   {
@@ -413,6 +446,8 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
   const [selCustomer, setSelCustomer] = useState("");
   const [showReceipt, setShowReceipt] = useState(null);
   const [discount, setDiscount] = useState(0);
+  const [payMethod, setPayMethod] = useState("cash"); // cash, card, mix
+  const [cashAmount, setCashAmount] = useState("");
   const [imeiPicker, setImeiPicker] = useState(null);
   const [posCatFilter, setPosCatFilter] = useState("All");
   const [scanInput, setScanInput] = useState("");
@@ -523,6 +558,9 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
       id: uid(),
       items: cart.map(c => ({ productId: c.productId, name: c.name, qty: c.qty, price: c.price, cost: c.cost ?? 0, imei: c.imei || "", unitId: c.unitId || "", color: c.color || "", storage: c.storage || "", grade: c.grade || "" })),
       subtotal, discount, discountAmt, total,
+      payment: payMethod,
+      cashPaid: payMethod === "mix" ? (+cashAmount || 0) : (payMethod === "cash" ? total : 0),
+      cardPaid: payMethod === "mix" ? (total - (+cashAmount || 0)) : (payMethod === "card" ? total : 0),
       customer: selCustomer || null,
       date: new Date().toISOString()
     };
@@ -540,6 +578,8 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
     setShowReceipt(sale);
     setCart([]);
     setDiscount(0);
+    setPayMethod("cash");
+    setCashAmount("");
     setSelCustomer("");
   };
 
@@ -633,6 +673,27 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
           {cart.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 30, fontSize: 13 }}>Tap a product to add it</div>}
         </div>
         <Input label="Discount (£)" type="number" min={0} value={discount} onChange={e => setDiscount(Math.max(0, +e.target.value))} />
+
+        {/* Payment Method */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Payment Method</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["cash", "💵 Cash"], ["card", "💳 Card"], ["mix", "🔀 Split"]].map(([val, label]) => (
+              <button key={val} onClick={() => { setPayMethod(val); if (val !== "mix") setCashAmount(""); }}
+                style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${payMethod === val ? "#2563eb" : "#d4d8e0"}`, background: payMethod === val ? "#2563eb15" : "transparent", color: payMethod === val ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+            ))}
+          </div>
+          {payMethod === "mix" && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+              <Input label="Cash (£)" type="number" min={0} value={cashAmount} onChange={e => setCashAmount(e.target.value)} style={{ marginBottom: 0 }} />
+              <div>
+                <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Card (£)</label>
+                <div style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#f8f9fc", color: "#374151", fontSize: 14, fontFamily: "'DM Sans', sans-serif" }}>{currency(Math.max(0, total - (+cashAmount || 0)))}</div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div style={{ borderTop: "1px solid #d4d8e0", paddingTop: 12, marginBottom: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b7280", marginBottom: 4 }}><span>Subtotal</span><span>{currency(subtotal)}</span></div>
           {discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#ef4444", marginBottom: 4 }}><span>Discount</span><span>-{currency(discountAmt)}</span></div>}
@@ -689,6 +750,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
             <div style={{ display: "flex", justifyContent: "space-between" }}><span>Subtotal:</span><span>{currency(showReceipt.subtotal)}</span></div>
             {showReceipt.discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", color: "#ef4444" }}><span>Discount:</span><span>-{currency(showReceipt.discountAmt)}</span></div>}
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 700, color: "#10b981", marginTop: 8 }}><span>TOTAL:</span><span>{currency(showReceipt.total)}</span></div>
+            {showReceipt.payment && <div style={{ marginTop: 6, fontSize: 12, color: "#374151" }}>💳 Paid: {showReceipt.payment === "mix" ? `Cash ${currency(showReceipt.cashPaid || 0)} + Card ${currency(showReceipt.cardPaid || 0)}` : showReceipt.payment === "card" ? "Card" : "Cash"}</div>}
             {showReceipt.customer && <div style={{ marginTop: 10, color: "#6b7280", fontSize: 11 }}>Customer: {customers.find(c => c.id === showReceipt.customer)?.name || "N/A"}</div>}
             <div style={{ textAlign: "center", marginTop: 16, color: "#9ca3af", fontSize: 11 }}>Thank you for your purchase!</div>
             {(() => {
@@ -1074,34 +1136,62 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
     return false;
   }).slice().reverse();
 
-  // Refund a sale: restore stock/units and mark refunded
-  const refundSale = (sale) => {
-    if (sale.refunded) return;
-    if (!confirm(`Refund sale #${sale.id.toUpperCase()} for ${currency(sale.total)}?\n\nThis will restore stock and mark the sale as refunded.`)) return;
-    setProducts(prev => prev.map(p => {
-      // Restore serialized units
-      const restoredUnitIds = new Set(sale.items.filter(i => i.unitId && i.productId === p.id).map(i => i.unitId));
-      if (restoredUnitIds.size > 0) {
-        return { ...p, units: p.units.map(u => restoredUnitIds.has(u.id) ? { ...u, status: "in_stock" } : u) };
-      }
-      // Restore non-serialized stock
-      const item = sale.items.find(i => i.productId === p.id && !i.unitId);
-      if (item) return { ...p, stock: (p.stock || 0) + item.qty };
-      return p;
-    }));
-    setSales(prev => prev.map(s => s.id === sale.id ? { ...s, refunded: true, refundDate: new Date().toISOString() } : s));
-    setSelected(prev => prev ? { ...prev, refunded: true, refundDate: new Date().toISOString() } : null);
+  // ─── Partial Refund System ──────────────────────────
+  const [refundModal, setRefundModal] = useState(null); // sale being refunded
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundMethod, setRefundMethod] = useState("cash");
+  const [refundItems, setRefundItems] = useState([]); // unit IDs to return to stock
+  const [refundReason, setRefundReason] = useState("");
+
+  const openRefund = (sale) => {
+    const alreadyRefunded = (sale.refunds || []).reduce((t, r) => t + r.amount, 0);
+    const remaining = sale.total - alreadyRefunded;
+    setRefundModal(sale);
+    setRefundAmount(String(remaining.toFixed(2)));
+    setRefundMethod("cash");
+    setRefundItems([]);
+    setRefundReason("");
   };
 
-  const totalActive = sales.filter(s => !s.refunded).reduce((t, s) => t + s.total, 0);
-  const totalRefunded = sales.filter(s => s.refunded).reduce((t, s) => t + s.total, 0);
+  const getRefundedTotal = (sale) => (sale.refunds || []).reduce((t, r) => t + r.amount, 0);
+
+  const processRefund = () => {
+    if (!refundModal) return;
+    const amount = +refundAmount || 0;
+    if (amount <= 0) return;
+    const alreadyRefunded = getRefundedTotal(refundModal);
+    const maxRefund = refundModal.total - alreadyRefunded;
+    if (amount > maxRefund + 0.01) { alert(`Maximum refund is ${currency(maxRefund)}`); return; }
+
+    // Restore selected serialized units to stock
+    if (refundItems.length > 0) {
+      const returnIds = new Set(refundItems);
+      setProducts(prev => prev.map(p => {
+        const hasUnits = p.units?.some(u => returnIds.has(u.id));
+        if (hasUnits) return { ...p, units: p.units.map(u => returnIds.has(u.id) ? { ...u, status: "in_stock" } : u) };
+        return p;
+      }));
+    }
+
+    const refund = { id: uid(), amount, method: refundMethod, reason: refundReason.trim(), returnedUnits: refundItems, date: new Date().toISOString() };
+    const newRefunds = [...(refundModal.refunds || []), refund];
+    const totalRefundedNow = alreadyRefunded + amount;
+    const fullyRefunded = totalRefundedNow >= refundModal.total - 0.01;
+
+    setSales(prev => prev.map(s => s.id === refundModal.id ? { ...s, refunds: newRefunds, refunded: fullyRefunded, refundDate: fullyRefunded ? new Date().toISOString() : s.refundDate } : s));
+    setSelected(prev => prev && prev.id === refundModal.id ? { ...prev, refunds: newRefunds, refunded: fullyRefunded, refundDate: fullyRefunded ? new Date().toISOString() : prev.refundDate } : prev);
+    setRefundModal(null);
+  };
+
+  const totalActive = sales.filter(s => !s.refunded).reduce((t, s) => t + s.total - getRefundedTotal(s), 0);
+  const totalRefundedAll = sales.reduce((t, s) => t + getRefundedTotal(s), 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
         <StatCard label="Total Sales" value={sales.length} color="#2563eb" />
         <StatCard label="Active Revenue" value={currency(totalActive)} color="#10b981" />
-        <StatCard label="Refunded" value={sales.filter(s => s.refunded).length} color="#ef4444" sub={currency(totalRefunded)} />
+        <StatCard label="Refunded" value={currency(totalRefundedAll)} color="#ef4444" />
       </div>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
@@ -1136,7 +1226,7 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
                   <td style={{ padding: "10px 8px" }}>{cust ? cust.name : <span style={{ color: "#9ca3af" }}>Walk-in</span>}</td>
                   <td style={{ padding: "10px 8px", color: "#6b7280" }}>{s.items.reduce((t, i) => t + i.qty, 0)} item(s)</td>
                   <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, color: s.refunded ? "#ef4444" : "#10b981" }}>{currency(s.total)}</td>
-                  <td style={{ padding: "10px 8px" }}>{s.refunded ? <Badge color="#ef4444">Refunded</Badge> : <Badge color="#10b981">Completed</Badge>}</td>
+                  <td style={{ padding: "10px 8px" }}>{s.refunded ? <Badge color="#ef4444">Refunded</Badge> : (s.refunds || []).length > 0 ? <Badge color="#f59e0b">Partial Refund</Badge> : <Badge color="#10b981">Completed</Badge>}</td>
                 </tr>
               );
             })}
@@ -1162,7 +1252,7 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: "#6b7280" }}>Status</div>
-                  <div>{selected.refunded ? <Badge color="#ef4444">Refunded {new Date(selected.refundDate).toLocaleDateString("en-GB")}</Badge> : <Badge color="#10b981">Completed</Badge>}</div>
+                  <div>{selected.refunded ? <Badge color="#ef4444">Fully Refunded</Badge> : (selected.refunds || []).length > 0 ? <Badge color="#f59e0b">Partial Refund ({currency(getRefundedTotal(selected))})</Badge> : <Badge color="#10b981">Completed</Badge>}</div>
                 </div>
               </div>
 
@@ -1184,14 +1274,79 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b7280", marginBottom: 4 }}><span>Subtotal</span><span>{currency(selected.subtotal)}</span></div>
                 {selected.discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#ef4444", marginBottom: 4 }}><span>Discount</span><span>-{currency(selected.discountAmt)}</span></div>}
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 800, color: "#111827", marginTop: 6 }}><span>Total</span><span>{currency(selected.total)}</span></div>
+                {selected.payment && <div style={{ marginTop: 6, fontSize: 12, color: "#374151" }}>💳 Paid: {selected.payment === "mix" ? `Cash ${currency(selected.cashPaid || 0)} + Card ${currency(selected.cardPaid || 0)}` : selected.payment === "card" ? "Card" : "Cash"}</div>}
               </div>
+
+              {/* Refund History */}
+              {(selected.refunds || []).length > 0 && (
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #d4d8e0" }}>
+                  <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Refund History</div>
+                  {selected.refunds.map((rf, i) => (
+                    <div key={rf.id || i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#374151", padding: "4px 0", borderBottom: "1px solid #e5e7eb" }}>
+                      <span>{new Date(rf.date).toLocaleString("en-GB")} · {rf.method === "card" ? "💳" : "💵"} {rf.method}{rf.reason ? ` — ${rf.reason}` : ""}</span>
+                      <span style={{ color: "#ef4444", fontWeight: 700 }}>-{currency(rf.amount)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, color: "#111827", marginTop: 6 }}>
+                    <span>Remaining after refunds</span>
+                    <span>{currency(selected.total - getRefundedTotal(selected))}</span>
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18, flexWrap: "wrap" }}>
                 <Btn variant="ghost" onClick={() => setSelected(null)}>Close</Btn>
                 <Btn variant="primary" onClick={() => printReceipt({ type: "sale", data: selected, customer: cust })}>🖨 Print / PDF</Btn>
                 <Btn variant="success" onClick={() => sendWhatsApp({ type: "sale", data: selected, customer: cust }, cust?.phone)}>💬 WhatsApp</Btn>
                 <Btn variant="warning" onClick={() => sendEmail({ type: "sale", data: selected, customer: cust }, cust?.email)}>✉ Email</Btn>
-                {!selected.refunded && <Btn variant="danger" onClick={() => refundSale(selected)}>↩ Refund Sale</Btn>}
+                {!selected.refunded && <Btn variant="danger" onClick={() => openRefund(selected)}>↩ Refund</Btn>}
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* Partial Refund Modal */}
+      <Modal open={!!refundModal} onClose={() => setRefundModal(null)} title={refundModal ? `Refund — Receipt #${refundModal.id.toUpperCase()}` : ""}>
+        {refundModal && (() => {
+          const alreadyRefunded = getRefundedTotal(refundModal);
+          const maxRefund = refundModal.total - alreadyRefunded;
+          const serializedItems = refundModal.items.filter(i => i.unitId);
+          const alreadyReturnedIds = new Set((refundModal.refunds || []).flatMap(r => r.returnedUnits || []));
+          const returnableItems = serializedItems.filter(i => !alreadyReturnedIds.has(i.unitId));
+          return (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, padding: "10px 14px", background: "#f8f9fc", borderRadius: 10, border: "1px solid #d4d8e0" }}>
+                <div><div style={{ fontSize: 11, color: "#6b7280" }}>Sale Total</div><div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>{currency(refundModal.total)}</div></div>
+                <div><div style={{ fontSize: 11, color: "#6b7280" }}>Already Refunded</div><div style={{ fontSize: 16, fontWeight: 700, color: "#ef4444" }}>{currency(alreadyRefunded)}</div></div>
+                <div><div style={{ fontSize: 11, color: "#6b7280" }}>Max Refund</div><div style={{ fontSize: 16, fontWeight: 700, color: "#10b981" }}>{currency(maxRefund)}</div></div>
+              </div>
+              <Input label="Refund Amount (£)" type="number" min={0} max={maxRefund} value={refundAmount} onChange={e => setRefundAmount(e.target.value)} />
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Refund To</label>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {[["cash", "💵 Cash"], ["card", "💳 Card"]].map(([val, label]) => (
+                    <button key={val} type="button" onClick={() => setRefundMethod(val)}
+                      style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${refundMethod === val ? "#2563eb" : "#d4d8e0"}`, background: refundMethod === val ? "#2563eb15" : "transparent", color: refundMethod === val ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+                  ))}
+                </div>
+              </div>
+              <Input label="Reason (optional)" placeholder="e.g. Customer changed mind, faulty device" value={refundReason} onChange={e => setRefundReason(e.target.value)} />
+              {returnableItems.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Return items to stock?</label>
+                  {returnableItems.map(item => (
+                    <label key={item.unitId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: refundItems.includes(item.unitId) ? "#2563eb10" : "transparent", borderRadius: 8, marginBottom: 4, cursor: "pointer", fontSize: 13, color: "#374151" }}>
+                      <input type="checkbox" checked={refundItems.includes(item.unitId)}
+                        onChange={e => setRefundItems(prev => e.target.checked ? [...prev, item.unitId] : prev.filter(id => id !== item.unitId))} />
+                      {item.name} {item.color || ""} {item.storage || ""} <span style={{ color: "#f59e0b", fontFamily: "monospace", fontSize: 11 }}>{item.imei}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+                <Btn variant="ghost" onClick={() => setRefundModal(null)}>Cancel</Btn>
+                <Btn variant="danger" onClick={processRefund} disabled={!refundAmount || +refundAmount <= 0}>↩ Process Refund of {currency(+refundAmount || 0)}</Btn>
               </div>
             </div>
           );
@@ -1271,7 +1426,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
   const [editing, setEditing] = useState(null);
   const [statusFilter, setStatusFilter] = useState("All");
   const [repairSearch, setRepairSearch] = useState("");
-  const blank = { customer: "", customerName: "", customerPhone: "", customerEmail: "", device: "", imei: "", issue: "", status: "Received", cost: "", notes: "" };
+  const blank = { customer: "", customerName: "", customerPhone: "", customerEmail: "", device: "", imei: "", issue: "", status: "Received", cost: "", payment: "cash", cashPaid: "", notes: "" };
   const [form, setForm] = useState(blank);
   const [customerMode, setCustomerMode] = useState("existing"); // "existing" or "new"
 
@@ -1293,7 +1448,8 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
       setCustomers(prev => [...prev, newCust]);
       customerId = newCust.id;
     }
-    const item = { customer: customerId, device: form.device, imei: form.imei, issue: form.issue, status: form.status, cost: +form.cost || 0, notes: form.notes };
+    const repairCost = +form.cost || 0;
+    const item = { customer: customerId, device: form.device, imei: form.imei, issue: form.issue, status: form.status, cost: repairCost, payment: form.payment || "cash", cashPaid: form.payment === "mix" ? (+form.cashPaid || 0) : (form.payment === "cash" ? repairCost : 0), cardPaid: form.payment === "mix" ? (repairCost - (+form.cashPaid || 0)) : (form.payment === "card" ? repairCost : 0), notes: form.notes };
     if (editing) setRepairs(prev => prev.map(r => r.id === editing ? { ...r, ...item } : r));
     else setRepairs(prev => [...prev, { ...item, id: uid(), dateIn: today() }]);
     setShowModal(false);
@@ -1390,6 +1546,21 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
           <Select label="Status" options={REPAIR_STATUSES} value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} />
           <Input label="Repair Cost (£)" type="number" min={0} value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Payment Method</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["cash", "💵 Cash"], ["card", "💳 Card"], ["mix", "🔀 Split"]].map(([val, label]) => (
+              <button key={val} type="button" onClick={() => setForm({ ...form, payment: val, cashPaid: val !== "mix" ? "" : form.cashPaid })}
+                style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${form.payment === val ? "#2563eb" : "#d4d8e0"}`, background: form.payment === val ? "#2563eb15" : "transparent", color: form.payment === val ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+            ))}
+          </div>
+          {form.payment === "mix" && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+              <Input label="Cash (£)" type="number" min={0} value={form.cashPaid} onChange={e => setForm({ ...form, cashPaid: e.target.value })} style={{ marginBottom: 0 }} />
+              <div><label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Card (£)</label><div style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#f8f9fc", color: "#374151", fontSize: 14 }}>{currency(Math.max(0, (+form.cost || 0) - (+form.cashPaid || 0)))}</div></div>
+            </div>
+          )}
         </div>
         <Input label="Notes" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
