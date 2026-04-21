@@ -65,6 +65,8 @@ const parseExcelRows = (rows) => {
     const color = (r.colour || r.color || "").toString().trim();
     const storage = (r.storage || r.memory || "").toString().trim();
     const unitCost = parseFloat(r["unit cost"] || r.unitcost || 0) || cost;
+    const grade = (r.grade || "").toString().trim().toUpperCase();
+    const supplier = (r.supplier || "").toString().trim();
 
     if (!name) { errors.push(`Row ${rowNum}: missing Name`); return; }
     if (!sku) { errors.push(`Row ${rowNum}: missing SKU`); return; }
@@ -79,12 +81,12 @@ const parseExcelRows = (rows) => {
     if (imei) {
       // Serialized unit row — uses per-unit cost if provided, otherwise product default
       p.serialized = true;
-      p.units.push({ id: uid(), imei, color, storage, cost: unitCost, status: "in_stock" });
+      p.units.push({ id: uid(), imei, color, storage, cost: unitCost, grade: GRADES.includes(grade) ? grade : "", supplier, status: "in_stock" });
     } else if (stockRaw !== undefined && stockRaw !== "" && stockRaw !== null) {
-      // Non-serialized stock row
+      // Non-serialized quantity row
       p.stock += parseInt(stockRaw, 10) || 0;
     } else {
-      errors.push(`Row ${rowNum}: must have either IMEI/Serial OR Stock quantity`);
+      errors.push(`Row ${rowNum}: must have either IMEI/Serial OR Quantity`);
     }
   });
 
@@ -94,14 +96,14 @@ const parseExcelRows = (rows) => {
 // Build a downloadable template Excel
 const downloadTemplate = () => {
   const data = [
-    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Stock: "", IMEI: "353456789012345", Colour: "Natural Titanium", Storage: "256GB", "Unit Cost": 920 },
-    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Stock: "", IMEI: "353456789012346", Colour: "Blue Titanium", Storage: "512GB", "Unit Cost": 980 },
-    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Stock: "", IMEI: "353456789012347", Colour: "Black Titanium", Storage: "1TB", "Unit Cost": 1050 },
-    { Name: "USB-C Charger 65W", SKU: "USBC65", Category: "Chargers", Cost: 12, Price: 29.99, Stock: 25, IMEI: "", Colour: "", Storage: "", "Unit Cost": "" },
-    { Name: "iPhone 15 Clear Case", SKU: "IP15CC", Category: "Cases", Cost: 5, Price: 19.99, Stock: 40, IMEI: "", Colour: "", Storage: "", "Unit Cost": "" },
+    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012345", Colour: "Natural Titanium", Storage: "256GB", Grade: "A", "Unit Cost": 920, Supplier: "PhoneStock UK" },
+    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012346", Colour: "Blue Titanium", Storage: "512GB", Grade: "B", "Unit Cost": 980, Supplier: "MobileWholesale" },
+    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012347", Colour: "Black Titanium", Storage: "1TB", Grade: "A", "Unit Cost": 1050, Supplier: "PhoneStock UK" },
+    { Name: "USB-C Charger 65W", SKU: "USBC65", Category: "Chargers", Cost: 12, Price: 29.99, Quantity: 25, IMEI: "", Colour: "", Storage: "", Grade: "", "Unit Cost": "", Supplier: "" },
+    { Name: "iPhone 15 Clear Case", SKU: "IP15CC", Category: "Cases", Cost: 5, Price: 19.99, Quantity: 40, IMEI: "", Colour: "", Storage: "", Grade: "", "Unit Cost": "", Supplier: "" },
   ];
   const ws = XLSX.utils.json_to_sheet(data);
-  ws["!cols"] = [{ wch: 24 }, { wch: 10 }, { wch: 16 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 10 }];
+  ws["!cols"] = [{ wch: 24 }, { wch: 10 }, { wch: 16 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 16 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Products");
   XLSX.writeFile(wb, "phone-shop-import-template.xlsx");
@@ -110,7 +112,7 @@ const downloadTemplate = () => {
 // ─── Shop Branding & T&Cs ───────────────────────────────────────────
 
 const SHOP = {
-  name: "Signature Phones",
+  name: "SP Phones",
   tagline: "Stay Connected",
   address: "12 Dovecot Place, Liverpool L14 9PH",
   phone: "07778 555546",
@@ -119,7 +121,7 @@ const SHOP = {
 
 const SALE_TERMS = [
   "If you are unsatisfied with your item within the first three days of purchase we can offer an exchange or credit note (credit note must be used within 4 weeks).",
-  "If you have any fault with the device or you have any queries about your device please refer direct to Signature Phones.",
+  "If you have any fault with the device or you have any queries about your device please refer direct to SP Phones.",
   "Warranty will be voided if physical damage found.",
   "We will repair the device if under warranty, if its beyond economical repair we will swap like for like.",
   "Warranty will be voided if device has been repaired by third party.",
@@ -133,10 +135,10 @@ const REPAIR_TERMS = [
   "Any screens that have physical damage, distorted lines or leakage within the LCD will not be covered under the warranty.",
   "Receipt must be brought on collection.",
   "Often damaged devices can cause other faults to some parts of the device, we will not be liable to any other internal damage.",
-  "Signature Phones will not be responsible for loss of any data, photos or videos lost during or after repair.",
-  "Signature Phones will repair the fault reported by the customer, any other fault found at the time or after will be an additional charge.",
+  "SP Phones will not be responsible for loss of any data, photos or videos lost during or after repair.",
+  "SP Phones will repair the fault reported by the customer, any other fault found at the time or after will be an additional charge.",
   "All equipment are checked and repaired at owner's risk. We take no responsibility occurred before during or after repair.",
-  "All phones remaining on site over 4 weeks shall remain the property of Signature Phones to cover cost of repair.",
+  "All phones remaining on site over 4 weeks shall remain the property of SP Phones to cover cost of repair.",
 ];
 
 // Build printable receipt HTML
@@ -174,8 +176,8 @@ const buildReceiptHTML = ({ type, data, customer }) => {
 <style>
   @media print { .no-print { display: none !important; } body { margin: 0; } }
   body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 380px; margin: 20px auto; padding: 20px; color: #111; background: #fff; }
-  .logo-box { width: 80px; height: 80px; border: 2px dashed #999; border-radius: 12px; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 11px; text-align: center; }
-  h1 { text-align: center; margin: 0; font-size: 22px; letter-spacing: 1px; }
+  .logo-box { display: none; }
+  h1 { text-align: center; margin: 0; font-size: 32px; letter-spacing: 1px; font-weight: 900; }
   .tagline { text-align: center; color: #666; font-size: 12px; font-style: italic; margin-top: 4px; }
   .shop-info { text-align: center; font-size: 11px; color: #666; margin: 10px 0 14px; line-height: 1.5; }
   .receipt-type { text-align: center; background: #111; color: #fff; padding: 6px; font-size: 13px; font-weight: 700; letter-spacing: 2px; margin: 12px 0; }
@@ -193,7 +195,6 @@ const buildReceiptHTML = ({ type, data, customer }) => {
   .btn-row button { background: #2563eb; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; margin: 0 4px; font-weight: 600; }
 </style></head>
 <body>
-  <div class="logo-box">LOGO<br>HERE</div>
   <h1>${SHOP.name}</h1>
   <div class="tagline">${SHOP.tagline}</div>
   <div class="shop-info">${SHOP.address}<br>${SHOP.phone} · ${SHOP.email}</div>
@@ -246,7 +247,7 @@ const buildReceiptText = ({ type, data, customer }) => {
     L.push(`*Repair Cost: £${(data.cost || 0).toFixed(2)}*`);
   }
   L.push("");
-  L.push(isSale ? "Thank you for your purchase!" : "Thank you for choosing Signature Phones.");
+  L.push(isSale ? "Thank you for your purchase!" : "Thank you for choosing SP Phones.");
   L.push("");
   L.push(`${SHOP.phone} · ${SHOP.email}`);
   L.push("");
@@ -1354,6 +1355,8 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
                 ))}
               </div>
               <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", paddingTop: 10, borderTop: "1px solid #e5e7eb" }}>
+                <button onClick={e => { e.stopPropagation(); openEdit(r); }}
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #6b7280", background: "#6b728015", color: "#374151", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>✏️ Edit</button>
                 <button onClick={e => { e.stopPropagation(); printReceipt({ type: "repair", data: r, customer: cust }); }}
                   style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #2563eb", background: "#2563eb15", color: "#2563eb", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🖨 Print Receipt</button>
                 <button onClick={e => { e.stopPropagation(); sendWhatsApp({ type: "repair", data: r, customer: cust }, cust?.phone); }}
@@ -1533,7 +1536,7 @@ const LoginScreen = ({ onLogin }) => {
       <div style={{ background: "linear-gradient(145deg, #ffffff, #f8f9fc)", border: "1px solid #d4d8e0", borderRadius: 20, padding: 40, width: 380, maxWidth: "92vw", boxShadow: "0 24px 64px rgba(0,0,0,0.3)" }}>
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div style={{ fontSize: 42, marginBottom: 8 }}>📱</div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#111827" }}>Signature Phones</h1>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#111827" }}>SP Phones</h1>
           <div style={{ fontSize: 12, color: "#2563eb", fontWeight: 600, marginTop: 4, letterSpacing: 2 }}>POS SYSTEM</div>
         </div>
         <form onSubmit={handleLogin}>
