@@ -158,7 +158,7 @@ const buildReceiptHTML = ({ type, data, customer }) => {
         </tr>`).join("")
     : `
         <tr>
-          <td><strong>${data.device}</strong>${data.imei ? `<br><span style="color:#b45309;font-size:11px;font-family:monospace">IMEI/SN: ${data.imei}</span>` : ""}<br><span style="color:#666;font-size:12px">Issue: ${data.issue}</span>${data.notes ? `<br><span style="color:#666;font-size:11px">Notes: ${data.notes}</span>` : ""}</td>
+          <td><strong>${data.device}</strong>${data.imei ? `<br><span style="color:#b45309;font-size:11px;font-family:monospace">IMEI/SN: ${data.imei}</span>` : ""}<br><span style="color:#666;font-size:12px">Fault: ${data.issue}</span>${data.notes ? `<br><span style="color:#666;font-size:11px">Notes: ${data.notes}</span>` : ""}</td>
           <td style="text-align:right">£${(data.cost || 0).toFixed(2)}</td>
         </tr>`;
 
@@ -242,7 +242,7 @@ const buildReceiptText = ({ type, data, customer }) => {
   } else {
     L.push(`Device: ${data.device}`);
     if (data.imei) L.push(`IMEI/SN: ${data.imei}`);
-    L.push(`Issue: ${data.issue}`);
+    L.push(`Fault: ${data.issue}`);
     L.push(`Status: ${data.status}`);
     L.push("─────────────────────");
     L.push(`*Repair Cost: £${(data.cost || 0).toFixed(2)}*`);
@@ -1426,17 +1426,21 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
   const [editing, setEditing] = useState(null);
   const [statusFilter, setStatusFilter] = useState("All");
   const [repairSearch, setRepairSearch] = useState("");
-  const blank = { customer: "", customerName: "", customerPhone: "", customerEmail: "", device: "", imei: "", issue: "", status: "Received", cost: "", payment: "cash", cashPaid: "", notes: "" };
+  const blank = { customer: "", customerName: "", customerPhone: "", customerEmail: "", _autoFilled: false, device: "", imei: "", issue: "", status: "Received", cost: "", payment: "cash", cashPaid: "", notes: "" };
   const [form, setForm] = useState(blank);
-  const [customerMode, setCustomerMode] = useState("existing"); // "existing" or "new"
 
-  const openAdd = () => { setForm(blank); setEditing(null); setCustomerMode("existing"); setShowModal(true); };
-  const openEdit = (r) => { setForm({ ...blank, ...r, cost: String(r.cost || "") }); setEditing(r.id); setCustomerMode("existing"); setShowModal(true); };
+  const openAdd = () => { setForm(blank); setEditing(null); setShowModal(true); };
+  const openEdit = (r) => {
+    const cust = customers.find(c => c.id === r.customer);
+    setForm({ ...blank, ...r, cost: String(r.cost || ""), customerPhone: cust?.phone || "", customerName: cust?.name || "", customerEmail: cust?.email || "", _autoFilled: !!cust });
+    setEditing(r.id);
+    setShowModal(true);
+  };
   const save = () => {
     if (!form.device || !form.issue) return;
     let customerId = form.customer;
-    // If new customer mode and name provided, create customer first
-    if (customerMode === "new" && form.customerName.trim()) {
+    // If no existing customer matched, create a new one from entered details
+    if (!customerId && form.customerName.trim()) {
       const newCust = {
         id: uid(),
         name: form.customerName.trim(),
@@ -1476,7 +1480,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
         <StatCard label="Completed" value={repairs.filter(r => r.status === "Completed").length} color="#6b7280" />
       </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "flex-end" }}>
-        <div style={{ flex: 1 }}><Input placeholder="Search by customer, device, IMEI, or issue…" value={repairSearch} onChange={e => setRepairSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
+        <div style={{ flex: 1 }}><Input placeholder="Search by customer, device, IMEI, or fault…" value={repairSearch} onChange={e => setRepairSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
         <Select options={["All", ...REPAIR_STATUSES]} value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: 200, marginBottom: 0 }} />
         <Btn onClick={openAdd}>+ New Repair</Btn>
       </div>
@@ -1492,7 +1496,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
                     <Badge color={statusColors[r.status] || "#2563eb"}>{r.status}</Badge>
                   </div>
                   {r.imei && <div style={{ fontSize: 12, color: "#f59e0b", fontFamily: "monospace", marginBottom: 3 }}>IMEI/SN: {r.imei}</div>}
-                  <div style={{ fontSize: 13, color: "#6b7280" }}>Issue: {r.issue}</div>
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>Fault: {r.issue}</div>
                   {cust && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>Customer: {cust.name} · {cust.phone}</div>}
                   {r.notes && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>📝 {r.notes}</div>}
                 </div>
@@ -1526,23 +1530,29 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
         {filtered.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 40 }}>No repairs found</div>}
       </div>
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Repair" : "New Repair"}>
-        {/* Customer mode toggle */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-          <button onClick={() => setCustomerMode("existing")} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: `1px solid ${customerMode === "existing" ? "#2563eb" : "#d4d8e0"}`, background: customerMode === "existing" ? "#2563eb15" : "transparent", color: customerMode === "existing" ? "#2563eb" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>Existing Customer</button>
-          <button onClick={() => setCustomerMode("new")} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: `1px solid ${customerMode === "new" ? "#10b981" : "#d4d8e0"}`, background: customerMode === "new" ? "#05966915" : "transparent", color: customerMode === "new" ? "#10b981" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>+ New Customer</button>
+        {/* Customer — phone number first, auto-fill if found */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Customer Phone Number *</label>
+          <input placeholder="e.g. 07778 123456" value={form.customerPhone}
+            onChange={e => {
+              const phone = e.target.value;
+              const found = customers.find(c => c.phone && c.phone.replace(/\s/g, "") === phone.replace(/\s/g, ""));
+              if (found) {
+                setForm(prev => ({ ...prev, customerPhone: phone, customer: found.id, customerName: found.name, customerEmail: found.email || "", _autoFilled: true }));
+              } else {
+                setForm(prev => ({ ...prev, customerPhone: phone, customer: "", customerName: prev._autoFilled ? "" : prev.customerName, customerEmail: prev._autoFilled ? "" : prev.customerEmail, _autoFilled: false }));
+              }
+            }}
+            style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${form._autoFilled ? "#10b981" : "#d4d8e0"}`, background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+          {form._autoFilled && <div style={{ fontSize: 11, color: "#10b981", marginTop: 4 }}>✅ Returning customer found — details auto-filled</div>}
         </div>
-        {customerMode === "existing" ? (
-          <Select label="Customer" options={[{ value: "", label: "Select customer…" }, ...customers.map(c => ({ value: c.id, label: `${c.name}${c.phone ? ` — ${c.phone}` : ""}` }))]} value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} />
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
-            <div style={{ gridColumn: "1/-1" }}><Input label="Customer Name *" placeholder="Full name" value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value })} /></div>
-            <Input label="Phone Number" placeholder="e.g. 07xxx xxxxxx" value={form.customerPhone} onChange={e => setForm({ ...form, customerPhone: e.target.value })} />
-            <Input label="Email (optional)" placeholder="name@example.com" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} />
-          </div>
-        )}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+          <Input label="Customer Name *" placeholder="Full name" value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value })} />
+          <Input label="Email (optional)" placeholder="name@example.com" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} />
+        </div>
         <Input label="Device" placeholder="e.g. iPhone 15 Pro" value={form.device} onChange={e => setForm({ ...form, device: e.target.value })} />
-        <Input label="IMEI / Serial Number" placeholder="e.g. 353456789012345" value={form.imei} onChange={e => setForm({ ...form, imei: e.target.value })} />
-        <Input label="Issue Description" placeholder="e.g. Cracked screen, not charging" value={form.issue} onChange={e => setForm({ ...form, issue: e.target.value })} />
+        <Input label="IMEI / Serial Number (optional)" placeholder="e.g. 353456789012345" value={form.imei} onChange={e => setForm({ ...form, imei: e.target.value })} />
+        <Input label="Fault" placeholder="e.g. Cracked screen, not charging" value={form.issue} onChange={e => setForm({ ...form, issue: e.target.value })} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
           <Select label="Status" options={REPAIR_STATUSES} value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} />
           <Input label="Repair Cost (£)" type="number" min={0} value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} />
