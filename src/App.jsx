@@ -65,6 +65,7 @@ const parseExcelRows = (rows) => {
     const color = (r.colour || r.color || "").toString().trim();
     const storage = (r.storage || r.memory || "").toString().trim();
     const unitCost = parseFloat(r["unit cost"] || r.unitcost || 0) || cost;
+    const unitPrice = parseFloat(r["unit price"] || r["sell price"] || r.unitprice || 0) || price;
     const grade = (r.grade || "").toString().trim().toUpperCase();
     const supplier = (r.supplier || "").toString().trim();
 
@@ -81,7 +82,7 @@ const parseExcelRows = (rows) => {
     if (imei) {
       // Serialized unit row — uses per-unit cost if provided, otherwise product default
       p.serialized = true;
-      p.units.push({ id: uid(), imei, color, storage, cost: unitCost, grade: GRADES.includes(grade) ? grade : "", supplier, status: "in_stock" });
+      p.units.push({ id: uid(), imei, color, storage, cost: unitCost, price: unitPrice, grade: GRADES.includes(grade) ? grade : "", supplier, status: "in_stock" });
     } else if (stockRaw !== undefined && stockRaw !== "" && stockRaw !== null) {
       // Non-serialized quantity row
       p.stock += parseInt(stockRaw, 10) || 0;
@@ -96,14 +97,14 @@ const parseExcelRows = (rows) => {
 // Build a downloadable template Excel
 const downloadTemplate = () => {
   const data = [
-    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012345", Colour: "Natural Titanium", Storage: "256GB", Grade: "A", "Unit Cost": 920, Supplier: "PhoneStock UK" },
-    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012346", Colour: "Blue Titanium", Storage: "512GB", Grade: "B", "Unit Cost": 980, Supplier: "MobileWholesale" },
-    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012347", Colour: "Black Titanium", Storage: "1TB", Grade: "A", "Unit Cost": 1050, Supplier: "PhoneStock UK" },
-    { Name: "USB-C Charger 65W", SKU: "USBC65", Category: "Chargers", Cost: 12, Price: 29.99, Quantity: 25, IMEI: "", Colour: "", Storage: "", Grade: "", "Unit Cost": "", Supplier: "" },
-    { Name: "iPhone 15 Clear Case", SKU: "IP15CC", Category: "Cases", Cost: 5, Price: 19.99, Quantity: 40, IMEI: "", Colour: "", Storage: "", Grade: "", "Unit Cost": "", Supplier: "" },
+    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012345", Colour: "Natural Titanium", Storage: "256GB", Grade: "A", "Unit Cost": 920, "Unit Price": 1199, Supplier: "PhoneStock UK" },
+    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012346", Colour: "Blue Titanium", Storage: "512GB", Grade: "B", "Unit Cost": 980, "Unit Price": 1099, Supplier: "MobileWholesale" },
+    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012347", Colour: "Black Titanium", Storage: "1TB", Grade: "A", "Unit Cost": 1050, "Unit Price": 1349, Supplier: "PhoneStock UK" },
+    { Name: "USB-C Charger 65W", SKU: "USBC65", Category: "Chargers", Cost: 12, Price: 29.99, Quantity: 25, IMEI: "", Colour: "", Storage: "", Grade: "", "Unit Cost": "", "Unit Price": "", Supplier: "" },
+    { Name: "iPhone 15 Clear Case", SKU: "IP15CC", Category: "Cases", Cost: 5, Price: 19.99, Quantity: 40, IMEI: "", Colour: "", Storage: "", Grade: "", "Unit Cost": "", "Unit Price": "", Supplier: "" },
   ];
   const ws = XLSX.utils.json_to_sheet(data);
-  ws["!cols"] = [{ wch: 24 }, { wch: 10 }, { wch: 16 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 16 }];
+  ws["!cols"] = [{ wch: 24 }, { wch: 10 }, { wch: 16 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 16 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Products");
   XLSX.writeFile(wb, "phone-shop-import-template.xlsx");
@@ -520,7 +521,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
   };
 
   const addSerializedToCart = (p, unit) => {
-    setCart(prev => [...prev, { cartItemId: uid(), productId: p.id, name: p.name, price: p.price, cost: unit.cost ?? p.cost ?? 0, qty: 1, imei: unit.imei, unitId: unit.id, color: unit.color || "", storage: unit.storage || "", grade: unit.grade || "" }]);
+    setCart(prev => [...prev, { cartItemId: uid(), productId: p.id, name: p.name, price: unit.price ?? p.price ?? 0, cost: unit.cost ?? p.cost ?? 0, qty: 1, imei: unit.imei, unitId: unit.id, color: unit.color || "", storage: unit.storage || "", grade: unit.grade || "" }]);
     setImeiPicker(null);
   };
 
@@ -634,7 +635,18 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
                       <div style={{ fontSize: 11, color: "#6b7280" }}>{p.sku}</div>
                       {p.serialized && <div style={{ fontSize: 10, color: "#f59e0b" }}>📋 Unique IMEI</div>}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto" }}>
-                        <span style={{ fontSize: 16, fontWeight: 800, color: "#3b82f6" }}>{currency(p.price)}</span>
+                        {(() => {
+                          if (p.serialized && (p.units || []).filter(u => u.status === "in_stock").length > 0) {
+                            const inStock = p.units.filter(u => u.status === "in_stock");
+                            const prices = inStock.map(u => u.price ?? p.price ?? 0);
+                            const minP = Math.min(...prices);
+                            const maxP = Math.max(...prices);
+                            return minP === maxP
+                              ? <span style={{ fontSize: 16, fontWeight: 800, color: "#3b82f6" }}>{currency(minP)}</span>
+                              : <span style={{ fontSize: 14, fontWeight: 800, color: "#3b82f6" }}>{currency(minP)}–{currency(maxP)}</span>;
+                          }
+                          return <span style={{ fontSize: 16, fontWeight: 800, color: "#3b82f6" }}>{currency(p.price)}</span>;
+                        })()}
                         <Badge color={stock < 5 ? "#ef4444" : "#10b981"}>{stock}</Badge>
                       </div>
                     </div>
@@ -717,7 +729,10 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#f59e0b", fontFamily: "monospace" }}>{unit.imei}</div>
                     <div style={{ fontSize: 12, color: "#2563eb", marginTop: 3 }}>{[unit.color, unit.storage, unit.grade ? `Grade ${unit.grade}` : ""].filter(Boolean).join(" · ") || "No variant info"}</div>
                   </div>
-                  <Btn variant="primary" style={{ padding: "6px 16px", fontSize: 13 }}>Select</Btn>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#10b981" }}>{currency(unit.price ?? imeiPicker.price ?? 0)}</div>
+                    <Btn variant="primary" style={{ padding: "6px 16px", fontSize: 13 }}>Select</Btn>
+                  </div>
                 </div>
               ))}
               {pickerUnits.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 20 }}>All units are already in cart or sold</div>}
@@ -783,6 +798,7 @@ const InventoryTab = ({ products, setProducts }) => {
   const [newColor, setNewColor] = useState("");
   const [newStorage, setNewStorage] = useState("");
   const [newUnitCost, setNewUnitCost] = useState("");
+  const [newUnitPrice, setNewUnitPrice] = useState("");
   const [newSupplier, setNewSupplier] = useState("");
   const [newGrade, setNewGrade] = useState("");
   const [importModal, setImportModal] = useState(false);
@@ -869,11 +885,13 @@ const InventoryTab = ({ products, setProducts }) => {
     if (isDuplicate) { alert("This IMEI/Serial already exists in inventory!"); return; }
     const product = products.find(p => p.id === productId);
     const unitCost = newUnitCost.trim() ? +newUnitCost : (product?.cost || 0);
-    setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: [...(p.units || []), { id: uid(), imei: newImei.trim(), color: newColor.trim(), storage: newStorage.trim(), cost: unitCost, supplier: newSupplier.trim(), grade: newGrade, status: "in_stock" }] } : p));
+    const unitPrice = newUnitPrice.trim() ? +newUnitPrice : (product?.price || 0);
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: [...(p.units || []), { id: uid(), imei: newImei.trim(), color: newColor.trim(), storage: newStorage.trim(), cost: unitCost, price: unitPrice, supplier: newSupplier.trim(), grade: newGrade, status: "in_stock" }] } : p));
     setNewImei("");
     setNewColor("");
     setNewStorage("");
     setNewUnitCost("");
+    setNewUnitPrice("");
     setNewSupplier("");
     setNewGrade("");
   };
@@ -931,7 +949,7 @@ const InventoryTab = ({ products, setProducts }) => {
                     <Badge color={stock === 0 ? "#ef4444" : stock < 5 ? "#f59e0b" : "#10b981"}>{stock}</Badge>
                   </td>
                   <td style={{ padding: "10px 8px", textAlign: "center", whiteSpace: "nowrap" }}>
-                    {p.serialized && <button onClick={() => { setUnitsModal(p); setNewImei(""); setNewColor(""); setNewStorage(""); setNewUnitCost(""); setNewSupplier(""); setNewGrade(""); }} style={{ background: "none", border: "none", color: "#f59e0b", cursor: "pointer", marginRight: 6, fontSize: 13, fontWeight: 600 }}>Units</button>}
+                    {p.serialized && <button onClick={() => { setUnitsModal(p); setNewImei(""); setNewColor(""); setNewStorage(""); setNewUnitCost(""); setNewUnitPrice(""); setNewSupplier(""); setNewGrade(""); }} style={{ background: "none", border: "none", color: "#f59e0b", cursor: "pointer", marginRight: 6, fontSize: 13, fontWeight: 600 }}>Units</button>}
                     <button onClick={() => openEdit(p)} style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", marginRight: 6, fontSize: 13 }}>Edit</button>
                     <button onClick={() => del(p.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 13 }}>Del</button>
                   </td>
@@ -951,7 +969,7 @@ const InventoryTab = ({ products, setProducts }) => {
             setForm({ ...form, category: cat, serialized: SERIALIZED_CATEGORIES.includes(cat) });
           }} />
           <Input label={form.serialized || SERIALIZED_CATEGORIES.includes(form.category) ? "Default Unit Cost (£)" : "Cost Price (£)"} type="number" min={0} value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} />
-          <Input label="Selling Price (£)" type="number" min={0} value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
+          <Input label={form.serialized || SERIALIZED_CATEGORIES.includes(form.category) ? "Default Sell Price (£)" : "Selling Price (£)"} type="number" min={0} value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
           {!(SERIALIZED_CATEGORIES.includes(form.category) || form.serialized) && (
             <Input label="Quantity" type="number" min={0} value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} />
           )}
@@ -970,17 +988,18 @@ const InventoryTab = ({ products, setProducts }) => {
       <Modal wide open={!!unitsModal} onClose={() => setUnitsModal(null)} title={currentUnitsProduct ? `Manage Units — ${currentUnitsProduct.name}` : ""}>
         {currentUnitsProduct && (
           <div>
-            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr 0.6fr 0.6fr 0.7fr 0.6fr auto", gap: 8, marginBottom: 6, alignItems: "flex-end" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.1fr 0.7fr 0.6fr 0.6fr 0.6fr 0.7fr 0.7fr auto", gap: 8, marginBottom: 6, alignItems: "flex-end" }}>
               <Input label="IMEI / Serial" placeholder="e.g. 353456789012350" value={newImei} onChange={e => setNewImei(e.target.value)} style={{ marginBottom: 0 }}
                 onKeyDown={e => { if (e.key === "Enter") addUnit(currentUnitsProduct.id); }} />
               <Input label="Colour" placeholder="e.g. Black" value={newColor} onChange={e => setNewColor(e.target.value)} style={{ marginBottom: 0 }} />
               <Input label="Storage" placeholder="e.g. 256GB" value={newStorage} onChange={e => setNewStorage(e.target.value)} style={{ marginBottom: 0 }} />
               <Select label="Grade" options={[{ value: "", label: "—" }, ...GRADES.map(g => ({ value: g, label: `Grade ${g}` }))]} value={newGrade} onChange={e => setNewGrade(e.target.value)} style={{ marginBottom: 0 }} />
               <Input label="Cost (£)" type="number" min={0} placeholder={String(currentUnitsProduct.cost || 0)} value={newUnitCost} onChange={e => setNewUnitCost(e.target.value)} style={{ marginBottom: 0 }} />
+              <Input label="Sell Price (£)" type="number" min={0} placeholder={String(currentUnitsProduct.price || 0)} value={newUnitPrice} onChange={e => setNewUnitPrice(e.target.value)} style={{ marginBottom: 0 }} />
               <Input label="Supplier" placeholder="e.g. WeBuy" value={newSupplier} onChange={e => setNewSupplier(e.target.value)} style={{ marginBottom: 0 }} />
               <Btn onClick={() => addUnit(currentUnitsProduct.id)} variant="success" style={{ marginBottom: 14 }}>+ Add</Btn>
             </div>
-            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 10, marginTop: -4 }}>💡 Leave Cost blank to use the product default ({currency(currentUnitsProduct.cost || 0)})</div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 10, marginTop: -4 }}>💡 Leave Cost or Sell Price blank to use the product defaults (Cost: {currency(currentUnitsProduct.cost || 0)}, Price: {currency(currentUnitsProduct.price || 0)})</div>
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>
               <Badge color="#10b981">{currentUnitsProduct.units.filter(u => u.status === "in_stock").length} in stock</Badge>
               <span style={{ marginLeft: 8 }}><Badge color="#6b7280">{currentUnitsProduct.units.filter(u => u.status === "sold").length} sold</Badge></span>
@@ -996,6 +1015,7 @@ const InventoryTab = ({ products, setProducts }) => {
                     <th style={{ padding: "8px" }}>Storage</th>
                     <th style={{ padding: "8px" }}>Grade</th>
                     <th style={{ padding: "8px", textAlign: "right" }}>Cost</th>
+                    <th style={{ padding: "8px", textAlign: "right" }}>Sell Price</th>
                     <th style={{ padding: "8px" }}>Supplier</th>
                     <th style={{ padding: "8px" }}>Status</th>
                     <th style={{ padding: "8px", textAlign: "center" }}>Action</th>
@@ -1009,7 +1029,8 @@ const InventoryTab = ({ products, setProducts }) => {
                       <td style={{ padding: "8px", color: "#2563eb" }}>{u.color || "—"}</td>
                       <td style={{ padding: "8px", color: "#374151", fontWeight: 600 }}>{u.storage || "—"}</td>
                       <td style={{ padding: "8px" }}>{u.grade ? <Badge color={u.grade === "A" ? "#10b981" : u.grade === "B" ? "#3b82f6" : u.grade === "C" ? "#f59e0b" : "#ef4444"}>Grade {u.grade}</Badge> : "—"}</td>
-                      <td style={{ padding: "8px", textAlign: "right", color: "#10b981", fontWeight: 600 }}>{currency(u.cost ?? currentUnitsProduct.cost ?? 0)}</td>
+                      <td style={{ padding: "8px", textAlign: "right", color: "#ef4444", fontWeight: 600 }}>{currency(u.cost ?? currentUnitsProduct.cost ?? 0)}</td>
+                      <td style={{ padding: "8px", textAlign: "right", color: "#10b981", fontWeight: 700 }}>{currency(u.price ?? currentUnitsProduct.price ?? 0)}</td>
                       <td style={{ padding: "8px", color: "#6b7280" }}>{u.supplier || "—"}</td>
                       <td style={{ padding: "8px" }}>
                         {u.status === "in_stock" ? <Badge color="#10b981">In Stock</Badge> : <Badge color="#6b7280">Sold</Badge>}
@@ -1022,7 +1043,7 @@ const InventoryTab = ({ products, setProducts }) => {
                     </tr>
                   ))}
                   {currentUnitsProduct.units.length === 0 && (
-                    <tr><td colSpan={9} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>No units yet. Add IMEI/Serial numbers above.</td></tr>
+                    <tr><td colSpan={10} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>No units yet. Add IMEI/Serial numbers above.</td></tr>
                   )}
                 </tbody>
               </table>
