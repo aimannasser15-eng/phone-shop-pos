@@ -1595,7 +1595,45 @@ const ReportsTab = ({ sales, products, repairs }) => {
     if (range === "month") return diff < 30;
     return true;
   };
-  const filtered = sales.filter(s => filterDate(s.date) && !s.refunded);
+
+  // Sales filtered by period (include partial refunds; we subtract refunded amounts)
+  const periodSales = sales.filter(s => filterDate(s.date));
+  const filtered = periodSales.filter(s => !s.refunded); // for revenue/profit calcs
+
+  // ─── Cash & Card Breakdown ──────────────────────────────────────
+  // Sales (gross, before refunds)
+  let salesCash = 0, salesCard = 0;
+  periodSales.forEach(s => {
+    salesCash += (s.cashPaid || (s.payment === "cash" ? s.total : 0));
+    salesCard += (s.cardPaid || (s.payment === "card" ? s.total : 0));
+  });
+  // Sale refunds (only count refunds that occurred in the selected period)
+  let salesCashRefunded = 0, salesCardRefunded = 0;
+  sales.forEach(s => {
+    (s.refunds || []).forEach(r => {
+      if (filterDate(r.date)) {
+        if (r.method === "card") salesCardRefunded += r.amount;
+        else salesCashRefunded += r.amount;
+      }
+    });
+  });
+
+  // Repairs (only completed ones count as income)
+  const periodRepairs = repairs.filter(r => r.status === "Completed" && filterDate(r.dateIn));
+  let repairCash = 0, repairCard = 0;
+  periodRepairs.forEach(r => {
+    repairCash += (r.cashPaid || (r.payment === "cash" ? (r.cost || 0) : 0));
+    repairCard += (r.cardPaid || (r.payment === "card" ? (r.cost || 0) : 0));
+  });
+
+  // Net (after refunds)
+  const netSalesCash = salesCash - salesCashRefunded;
+  const netSalesCard = salesCard - salesCardRefunded;
+  const totalCashIn = netSalesCash + repairCash;
+  const totalCardIn = netSalesCard + repairCard;
+  const totalIntake = totalCashIn + totalCardIn;
+  const totalRefunds = salesCashRefunded + salesCardRefunded;
+
   const revenue = filtered.reduce((t, s) => t + s.total, 0);
   const totalCost = filtered.reduce((t, s) => t + s.items.reduce((a, i) => a + ((i.cost || 0) * i.qty), 0), 0);
   const profit = revenue - totalCost;
@@ -1628,6 +1666,68 @@ const ReportsTab = ({ sales, products, repairs }) => {
         <StatCard label="Average Sale" value={currency(avgSale)} color="#3b82f6" />
         <StatCard label="Repair Revenue" value={currency(repairRev)} color="#f59e0b" />
       </div>
+
+      {/* Cash & Card Breakdown */}
+      <Card style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>💰 Cash & Card Breakdown</div>
+          <div style={{ fontSize: 11, color: "#6b7280" }}>Net amounts (after refunds)</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
+          <div style={{ background: "#10b98110", border: "1px solid #10b98140", borderRadius: 12, padding: 16 }}>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>💵 Cash In</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: "#10b981" }}>{currency(totalCashIn)}</div>
+          </div>
+          <div style={{ background: "#2563eb10", border: "1px solid #2563eb40", borderRadius: 12, padding: 16 }}>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>💳 Card In</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: "#2563eb" }}>{currency(totalCardIn)}</div>
+          </div>
+          <div style={{ background: "linear-gradient(135deg, #2563eb15, #3b82f615)", border: "2px solid #2563eb", borderRadius: 12, padding: 16 }}>
+            <div style={{ fontSize: 12, color: "#374151", marginBottom: 4, fontWeight: 600 }}>💼 Total Intake</div>
+            <div style={{ fontSize: 28, fontWeight: 900, color: "#111827" }}>{currency(totalIntake)}</div>
+          </div>
+        </div>
+
+        {/* Detailed split */}
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
+          <thead>
+            <tr style={{ borderBottom: "2px solid #d4d8e0", color: "#6b7280", textAlign: "left" }}>
+              <th style={{ padding: "8px 4px" }}>Source</th>
+              <th style={{ padding: "8px 4px", textAlign: "right" }}>Cash</th>
+              <th style={{ padding: "8px 4px", textAlign: "right" }}>Card</th>
+              <th style={{ padding: "8px 4px", textAlign: "right" }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+              <td style={{ padding: "8px 4px", color: "#374151", fontWeight: 600 }}>Sales (gross)</td>
+              <td style={{ padding: "8px 4px", textAlign: "right", color: "#10b981" }}>{currency(salesCash)}</td>
+              <td style={{ padding: "8px 4px", textAlign: "right", color: "#2563eb" }}>{currency(salesCard)}</td>
+              <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{currency(salesCash + salesCard)}</td>
+            </tr>
+            {totalRefunds > 0 && (
+              <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                <td style={{ padding: "8px 4px", color: "#ef4444", fontWeight: 600 }}>Refunds</td>
+                <td style={{ padding: "8px 4px", textAlign: "right", color: "#ef4444" }}>-{currency(salesCashRefunded)}</td>
+                <td style={{ padding: "8px 4px", textAlign: "right", color: "#ef4444" }}>-{currency(salesCardRefunded)}</td>
+                <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#ef4444" }}>-{currency(totalRefunds)}</td>
+              </tr>
+            )}
+            <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+              <td style={{ padding: "8px 4px", color: "#374151", fontWeight: 600 }}>Repairs (completed)</td>
+              <td style={{ padding: "8px 4px", textAlign: "right", color: "#10b981" }}>{currency(repairCash)}</td>
+              <td style={{ padding: "8px 4px", textAlign: "right", color: "#2563eb" }}>{currency(repairCard)}</td>
+              <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{currency(repairCash + repairCard)}</td>
+            </tr>
+            <tr style={{ borderTop: "2px solid #111827" }}>
+              <td style={{ padding: "10px 4px", fontWeight: 800, color: "#111827", fontSize: 14 }}>NET TOTAL</td>
+              <td style={{ padding: "10px 4px", textAlign: "right", fontWeight: 800, color: "#10b981", fontSize: 14 }}>{currency(totalCashIn)}</td>
+              <td style={{ padding: "10px 4px", textAlign: "right", fontWeight: 800, color: "#2563eb", fontSize: 14 }}>{currency(totalCardIn)}</td>
+              <td style={{ padding: "10px 4px", textAlign: "right", fontWeight: 900, color: "#111827", fontSize: 16 }}>{currency(totalIntake)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </Card>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <Card>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 14 }}>Revenue (Last 7 Days)</div>
