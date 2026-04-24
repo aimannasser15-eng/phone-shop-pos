@@ -1136,10 +1136,25 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
   const now = new Date();
   const filterDate = (d) => {
     if (dateFilter === "all") return true;
-    const diff = (now - new Date(d)) / 86400000;
-    if (dateFilter === "today") return diff < 1;
-    if (dateFilter === "week") return diff < 7;
-    if (dateFilter === "month") return diff < 30;
+    if (!d) return false;
+    const date = new Date(d);
+    if (dateFilter === "today") {
+      return date.getFullYear() === now.getFullYear()
+          && date.getMonth() === now.getMonth()
+          && date.getDate() === now.getDate();
+    }
+    if (dateFilter === "week") {
+      const startOfWeek = new Date(now);
+      const dayOfWeek = startOfWeek.getDay();
+      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      startOfWeek.setDate(now.getDate() - daysFromMonday);
+      startOfWeek.setHours(0, 0, 0, 0);
+      return date >= startOfWeek && date <= now;
+    }
+    if (dateFilter === "month") {
+      return date.getFullYear() === now.getFullYear()
+          && date.getMonth() === now.getMonth();
+    }
     return true;
   };
 
@@ -1610,10 +1625,28 @@ const ReportsTab = ({ sales, products, repairs }) => {
   const now = new Date();
   const filterDate = (d) => {
     if (range === "all") return true;
-    const diff = (now - new Date(d)) / 86400000;
-    if (range === "today") return diff < 1;
-    if (range === "week") return diff < 7;
-    if (range === "month") return diff < 30;
+    if (!d) return false;
+    const date = new Date(d);
+    // "Today" means the same calendar date
+    if (range === "today") {
+      return date.getFullYear() === now.getFullYear()
+          && date.getMonth() === now.getMonth()
+          && date.getDate() === now.getDate();
+    }
+    // "This week" means Monday–Sunday of the current week
+    if (range === "week") {
+      const startOfWeek = new Date(now);
+      const dayOfWeek = startOfWeek.getDay(); // 0 = Sunday, 1 = Monday, ...
+      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      startOfWeek.setDate(now.getDate() - daysFromMonday);
+      startOfWeek.setHours(0, 0, 0, 0);
+      return date >= startOfWeek && date <= now;
+    }
+    // "This month" means the same calendar month of the current year
+    if (range === "month") {
+      return date.getFullYear() === now.getFullYear()
+          && date.getMonth() === now.getMonth();
+    }
     return true;
   };
 
