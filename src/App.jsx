@@ -17,9 +17,10 @@ const fbApp = initializeApp(firebaseConfig);
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
 
-const TABS = ["pos", "inventory", "sales", "customers", "repairs", "tradeins", "reports"];
-const TAB_LABELS = { pos: "Point of Sale", inventory: "Inventory", sales: "Sales History", customers: "Customers", repairs: "Repairs", tradeins: "Trade-Ins", reports: "Reports" };
+const TABS = ["pos", "inventory", "sales", "customers", "repairs", "tradeins", "deposits", "reports"];
+const TAB_LABELS = { pos: "Point of Sale", inventory: "Inventory", sales: "Sales History", customers: "Customers", repairs: "Repairs", tradeins: "Trade-Ins", deposits: "Deposits", reports: "Reports" };
 const TRADEIN_STATUSES = ["Received", "Testing", "Added to Stock", "Rejected"];
+const DEPOSIT_STATUSES = ["Active", "Completed", "Expired", "Cancelled"];
 const TAB_ICONS = {
   pos: "M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z",
   inventory: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
@@ -27,6 +28,7 @@ const TAB_ICONS = {
   customers: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z",
   repairs: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z",
   tradeins: "M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4",
+  deposits: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
   reports: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
 };
 
@@ -2047,7 +2049,455 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
   );
 };
 
-const ReportsTab = ({ sales, products, repairs, tradeIns = [] }) => {
+// ═══════════════════════════════════════════════════════════════════
+// DEPOSITS TAB
+// ═══════════════════════════════════════════════════════════════════
+
+const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products, setProducts, sales, setSales }) => {
+  const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("Active");
+  const [search, setSearch] = useState("");
+  const [finalPayModal, setFinalPayModal] = useState(null); // deposit to finalize
+  const [finalPayment, setFinalPayment] = useState({ method: "cash", cashAmount: "" });
+  const [extendModal, setExtendModal] = useState(null);
+  const [extendDays, setExtendDays] = useState("30");
+
+  const blank = {
+    customer: "", customerName: "", customerPhone: "", customerEmail: "", _autoFilled: false,
+    productId: "", unitId: "", productName: "", imei: "", color: "", storage: "", grade: "",
+    agreedPrice: "", depositAmount: "", depositMethod: "cash", depositCashAmount: "",
+    dateTaken: today(), deadline: "", notes: "",
+    status: "Active",
+    finalPayment: null, // { method, cashAmount, cardAmount, date }
+  };
+  const [form, setForm] = useState(blank);
+
+  // Auto-compute default deadline (30 days from today)
+  const computeDeadline = (fromDate, days = 30) => {
+    const d = new Date(fromDate);
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const openAdd = () => {
+    setForm({ ...blank, deadline: computeDeadline(today(), 30) });
+    setEditing(null);
+    setShowModal(true);
+  };
+
+  const openEdit = (d) => {
+    const cust = customers.find(c => c.id === d.customer);
+    setForm({ ...blank, ...d,
+      agreedPrice: String(d.agreedPrice || ""),
+      depositAmount: String(d.depositAmount || ""),
+      depositCashAmount: String(d.depositCashAmount || ""),
+      customerName: cust?.name || "", customerPhone: cust?.phone || "", customerEmail: cust?.email || "",
+      _autoFilled: !!cust,
+    });
+    setEditing(d.id);
+    setShowModal(true);
+  };
+
+  // All reserved unit IDs that are locked by an active deposit
+  const reservedUnitIds = new Set(deposits.filter(d => d.status === "Active" && d.unitId).map(d => d.unitId));
+
+  // Available serialized products for deposit (show only if they have unreserved in_stock units)
+  const availableProducts = products.filter(p => {
+    if (!p.serialized) return (p.stock || 0) > 0;
+    return (p.units || []).some(u => u.status === "in_stock" && !reservedUnitIds.has(u.id));
+  });
+
+  const availableUnitsFor = (productId) => {
+    const p = products.find(x => x.id === productId);
+    if (!p || !p.serialized) return [];
+    return (p.units || []).filter(u => u.status === "in_stock" && !reservedUnitIds.has(u.id));
+  };
+
+  const save = () => {
+    if (!form.productId || !form.agreedPrice || !form.depositAmount) { alert("Product, Agreed Price and Deposit Amount are required"); return; }
+    const product = products.find(p => p.id === form.productId);
+    if (!product) { alert("Product not found"); return; }
+    if (product.serialized && !form.unitId) { alert("Please select a specific unit (IMEI)"); return; }
+    const agreed = +form.agreedPrice || 0;
+    const deposit = +form.depositAmount || 0;
+    if (deposit <= 0) { alert("Deposit amount must be greater than zero"); return; }
+    if (deposit >= agreed) { alert("Deposit must be less than the agreed price. If paid in full, use POS instead."); return; }
+
+    let customerId = form.customer;
+    if (!customerId && form.customerName.trim()) {
+      const newCust = { id: uid(), name: form.customerName.trim(), phone: form.customerPhone.trim(), email: form.customerEmail.trim(), notes: "", joined: today() };
+      setCustomers(prev => [...prev, newCust]);
+      customerId = newCust.id;
+    }
+    if (!customerId) { alert("Customer details are required"); return; }
+
+    const unit = product.serialized ? product.units.find(u => u.id === form.unitId) : null;
+
+    const item = {
+      customer: customerId,
+      productId: form.productId, unitId: form.unitId || "",
+      productName: product.name,
+      imei: unit?.imei || "", color: unit?.color || "", storage: unit?.storage || "", grade: unit?.grade || "",
+      agreedPrice: agreed,
+      depositAmount: deposit,
+      depositMethod: form.depositMethod,
+      depositCashAmount: form.depositMethod === "mix" ? (+form.depositCashAmount || 0) : (form.depositMethod === "cash" ? deposit : 0),
+      depositCardAmount: form.depositMethod === "mix" ? (deposit - (+form.depositCashAmount || 0)) : (form.depositMethod === "card" ? deposit : 0),
+      dateTaken: form.dateTaken || today(),
+      deadline: form.deadline || computeDeadline(today(), 30),
+      notes: form.notes,
+      status: form.status || "Active",
+    };
+
+    if (editing) {
+      setDeposits(prev => prev.map(d => d.id === editing ? { ...d, ...item } : d));
+    } else {
+      const newDep = { id: uid(), ...item };
+      setDeposits(prev => [...prev, newDep]);
+      // Reserve the unit if serialized
+      if (product.serialized && form.unitId) {
+        setProducts(prev => prev.map(p => p.id === form.productId
+          ? { ...p, units: p.units.map(u => u.id === form.unitId ? { ...u, status: "reserved" } : u) }
+          : p));
+      } else if (!product.serialized) {
+        // Decrement stock for non-serialized (reserved quantity)
+        setProducts(prev => prev.map(p => p.id === form.productId ? { ...p, stock: Math.max(0, (p.stock || 0) - 1) } : p));
+      }
+    }
+    setShowModal(false);
+  };
+
+  // Cancel deposit — deposit is kept (non-refundable), unit returned to stock
+  const cancelDeposit = (deposit) => {
+    if (deposit.status !== "Active" && deposit.status !== "Expired") return;
+    if (!confirm(`Cancel deposit for ${deposit.productName}?\n\nThe £${deposit.depositAmount.toFixed(2)} deposit will be KEPT (non-refundable) and the unit will return to stock.`)) return;
+    setDeposits(prev => prev.map(d => d.id === deposit.id ? { ...d, status: "Cancelled", cancelledDate: new Date().toISOString() } : d));
+    // Return unit to stock
+    if (deposit.unitId) {
+      setProducts(prev => prev.map(p => p.id === deposit.productId
+        ? { ...p, units: p.units.map(u => u.id === deposit.unitId ? { ...u, status: "in_stock" } : u) }
+        : p));
+    } else {
+      setProducts(prev => prev.map(p => p.id === deposit.productId ? { ...p, stock: (p.stock || 0) + 1 } : p));
+    }
+  };
+
+  // Open final payment modal
+  const openFinalPay = (deposit) => {
+    const balance = deposit.agreedPrice - deposit.depositAmount;
+    setFinalPayment({ method: "cash", cashAmount: String(balance.toFixed(2)) });
+    setFinalPayModal(deposit);
+  };
+
+  // Complete deposit — convert to sale
+  const completeFinalPayment = () => {
+    if (!finalPayModal) return;
+    const deposit = finalPayModal;
+    const balance = deposit.agreedPrice - deposit.depositAmount;
+    const method = finalPayment.method;
+    const finalCash = method === "mix" ? (+finalPayment.cashAmount || 0) : (method === "cash" ? balance : 0);
+    const finalCard = method === "mix" ? (balance - finalCash) : (method === "card" ? balance : 0);
+
+    const product = products.find(p => p.id === deposit.productId);
+    if (!product) { alert("Product not found"); return; }
+    const unit = product.serialized ? product.units.find(u => u.id === deposit.unitId) : null;
+
+    // Create sale record covering full agreed price
+    const saleItem = {
+      productId: deposit.productId, name: deposit.productName, qty: 1,
+      price: deposit.agreedPrice,
+      cost: unit?.cost ?? product.cost ?? 0,
+      imei: deposit.imei || "", unitId: deposit.unitId || "",
+      color: deposit.color || "", storage: deposit.storage || "", grade: deposit.grade || "",
+    };
+    const sale = {
+      id: uid(),
+      items: [saleItem],
+      subtotal: deposit.agreedPrice,
+      discount: 0, discountAmt: 0,
+      total: deposit.agreedPrice,
+      payment: "mix",
+      cashPaid: (deposit.depositCashAmount || 0) + finalCash,
+      cardPaid: (deposit.depositCardAmount || 0) + finalCard,
+      customer: deposit.customer,
+      date: new Date().toISOString(),
+      fromDeposit: deposit.id,
+    };
+    setSales(prev => [...prev, sale]);
+
+    // Mark unit sold
+    if (deposit.unitId) {
+      setProducts(prev => prev.map(p => p.id === deposit.productId
+        ? { ...p, units: p.units.map(u => u.id === deposit.unitId ? { ...u, status: "sold" } : u) }
+        : p));
+    }
+    // Non-serialized stock was already decremented when deposit was taken
+
+    // Mark deposit complete
+    setDeposits(prev => prev.map(d => d.id === deposit.id
+      ? { ...d, status: "Completed", completedDate: new Date().toISOString(),
+          finalPayment: { method, cashAmount: finalCash, cardAmount: finalCard, date: new Date().toISOString() },
+          saleId: sale.id }
+      : d));
+    setFinalPayModal(null);
+  };
+
+  // Extend deadline
+  const confirmExtend = () => {
+    if (!extendModal) return;
+    const days = parseInt(extendDays, 10);
+    if (!days || days <= 0) { alert("Enter a valid number of days"); return; }
+    const currentDeadline = new Date(extendModal.deadline);
+    currentDeadline.setDate(currentDeadline.getDate() + days);
+    const newDeadline = currentDeadline.toISOString().slice(0, 10);
+    setDeposits(prev => prev.map(d => d.id === extendModal.id
+      ? { ...d, deadline: newDeadline, status: d.status === "Expired" ? "Active" : d.status, extensions: [...(d.extensions || []), { days, date: new Date().toISOString(), oldDeadline: d.deadline }] }
+      : d));
+    setExtendModal(null);
+  };
+
+  // Auto-mark expired deposits
+  useEffect(() => {
+    const todayDate = new Date(today());
+    const toExpire = deposits.filter(d => d.status === "Active" && new Date(d.deadline) < todayDate);
+    if (toExpire.length > 0) {
+      setDeposits(prev => prev.map(d => toExpire.some(e => e.id === d.id) ? { ...d, status: "Expired" } : d));
+    }
+  }, []); // only on mount
+
+  const daysUntilDeadline = (deadline) => {
+    const diff = (new Date(deadline) - new Date(today())) / 86400000;
+    return Math.ceil(diff);
+  };
+
+  const filtered = deposits.filter(d => {
+    if (statusFilter !== "All" && d.status !== statusFilter) return false;
+    if (search) {
+      const s = search.toLowerCase();
+      const cust = customers.find(c => c.id === d.customer);
+      if (!(d.productName || "").toLowerCase().includes(s)
+        && !(d.imei || "").toLowerCase().includes(s)
+        && !(cust?.name || "").toLowerCase().includes(s)
+        && !(cust?.phone || "").toLowerCase().includes(s)) return false;
+    }
+    return true;
+  }).sort((a, b) => {
+    if (statusFilter === "Active") return new Date(a.deadline) - new Date(b.deadline);
+    return new Date(b.dateTaken) - new Date(a.dateTaken);
+  });
+
+  const activeCount = deposits.filter(d => d.status === "Active").length;
+  const expiredCount = deposits.filter(d => d.status === "Expired").length;
+  const totalHeld = deposits.filter(d => d.status === "Active").reduce((t, d) => t + d.depositAmount, 0);
+  const totalOutstanding = deposits.filter(d => d.status === "Active").reduce((t, d) => t + (d.agreedPrice - d.depositAmount), 0);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+        <StatCard label="Active Deposits" value={activeCount} color="#2563eb" sub={`${currency(totalHeld)} held`} />
+        <StatCard label="Outstanding Balance" value={currency(totalOutstanding)} color="#f59e0b" sub="Customers owe us" />
+        <StatCard label="Expired" value={expiredCount} color="#ef4444" sub="Needs attention" />
+        <StatCard label="Completed" value={deposits.filter(d => d.status === "Completed").length} color="#10b981" />
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 12, alignItems: "center" }}>
+        <div style={{ flex: 1 }}><Input placeholder="Search by product, IMEI, customer…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
+        <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} options={["All", ...DEPOSIT_STATUSES]} style={{ marginBottom: 0, width: 160 }} />
+        <Btn variant="success" onClick={openAdd}>+ New Deposit</Btn>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", paddingRight: 6 }}>
+        {filtered.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 40 }}>No deposits in this category.</div>}
+        {filtered.map(d => {
+          const cust = customers.find(c => c.id === d.customer);
+          const balance = d.agreedPrice - d.depositAmount;
+          const days = daysUntilDeadline(d.deadline);
+          const isExpired = d.status === "Expired";
+          const isUrgent = d.status === "Active" && days <= 7;
+          const statusColor = d.status === "Active" ? (isUrgent ? "#f59e0b" : "#2563eb") : d.status === "Completed" ? "#10b981" : d.status === "Expired" ? "#ef4444" : "#6b7280";
+          return (
+            <Card key={d.id} style={{ marginBottom: 10, cursor: "pointer", borderLeft: `4px solid ${statusColor}` }} onClick={() => openEdit(d)}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>{d.productName}</div>
+                    <Badge color={statusColor}>{d.status}</Badge>
+                    {d.grade && <Badge color={d.grade === "A" ? "#10b981" : d.grade === "B" ? "#3b82f6" : d.grade === "C" ? "#f59e0b" : "#ef4444"}>Grade {d.grade}</Badge>}
+                  </div>
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>
+                    {[d.color, d.storage].filter(Boolean).join(" · ")}{d.imei ? ` · IMEI: ${d.imei}` : ""}
+                  </div>
+                  <div style={{ fontSize: 13, color: "#374151", marginTop: 4 }}>👤 {cust?.name || "Unknown"}{cust?.phone ? ` · ${cust.phone}` : ""}</div>
+                  {d.status === "Active" && (
+                    <div style={{ fontSize: 12, color: isUrgent ? "#f59e0b" : "#6b7280", marginTop: 4, fontWeight: 600 }}>
+                      📅 Deadline: {new Date(d.deadline).toLocaleDateString("en-GB")}
+                      {days > 0 ? ` · ${days} day${days === 1 ? "" : "s"} remaining` : days === 0 ? " · DUE TODAY" : ` · ${Math.abs(days)} days overdue`}
+                    </div>
+                  )}
+                  {isExpired && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, fontWeight: 700 }}>⚠ Expired on {new Date(d.deadline).toLocaleDateString("en-GB")}</div>}
+                  {d.notes && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontStyle: "italic" }}>📝 {d.notes}</div>}
+                </div>
+                <div style={{ textAlign: "right", minWidth: 160 }}>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Agreed Price</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>{currency(d.agreedPrice)}</div>
+                  <div style={{ fontSize: 11, color: "#10b981", marginTop: 6 }}>Paid: {currency(d.depositAmount)}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: balance > 0 ? "#f59e0b" : "#10b981", marginTop: 2 }}>Balance: {currency(balance)}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", paddingTop: 10, borderTop: "1px solid #e5e7eb" }}>
+                <button onClick={e => { e.stopPropagation(); openEdit(d); }}
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #6b7280", background: "#6b728015", color: "#374151", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>✏️ Edit</button>
+                {(d.status === "Active" || d.status === "Expired") && (
+                  <button onClick={e => { e.stopPropagation(); openFinalPay(d); }}
+                    style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #10b981", background: "#10b98115", color: "#10b981", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>✅ Take Final Payment ({currency(balance)})</button>
+                )}
+                {(d.status === "Active" || d.status === "Expired") && (
+                  <button onClick={e => { e.stopPropagation(); setExtendModal(d); setExtendDays("30"); }}
+                    style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #2563eb", background: "#2563eb15", color: "#2563eb", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>📅 Extend Deadline</button>
+                )}
+                {(d.status === "Active" || d.status === "Expired") && (
+                  <button onClick={e => { e.stopPropagation(); cancelDeposit(d); }}
+                    style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #ef4444", background: "transparent", color: "#ef4444", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🚫 Cancel (keep deposit)</button>
+                )}
+                {d.status === "Completed" && <span style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, background: "#10b98115", color: "#10b981", fontWeight: 600 }}>✅ Completed {d.completedDate ? new Date(d.completedDate).toLocaleDateString("en-GB") : ""}</span>}
+                {d.status === "Cancelled" && <span style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, background: "#6b728015", color: "#6b7280", fontWeight: 600 }}>🚫 Cancelled (deposit kept)</span>}
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* New/Edit Deposit Modal */}
+      <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Deposit" : "New Deposit"}>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Customer Phone Number *</label>
+          <input placeholder="e.g. 07778 123456" value={form.customerPhone}
+            onChange={e => {
+              const phone = e.target.value;
+              const found = customers.find(c => c.phone && c.phone.replace(/\s/g, "") === phone.replace(/\s/g, ""));
+              if (found) setForm(prev => ({ ...prev, customerPhone: phone, customer: found.id, customerName: found.name, customerEmail: found.email || "", _autoFilled: true }));
+              else setForm(prev => ({ ...prev, customerPhone: phone, customer: "", customerName: prev._autoFilled ? "" : prev.customerName, customerEmail: prev._autoFilled ? "" : prev.customerEmail, _autoFilled: false }));
+            }}
+            style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${form._autoFilled ? "#10b981" : "#d4d8e0"}`, background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+          {form._autoFilled && <div style={{ fontSize: 11, color: "#10b981", marginTop: 4 }}>✅ Returning customer found — details auto-filled</div>}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+          <Input label="Customer Name *" placeholder="Full name" value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value })} />
+          <Input label="Email (optional)" placeholder="name@example.com" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} />
+        </div>
+        <Select label="Product *"
+          options={[{ value: "", label: "Select product…" }, ...availableProducts.map(p => ({ value: p.id, label: `${p.name} (${p.sku}) — ${currency(p.price)}` }))]}
+          value={form.productId}
+          onChange={e => {
+            const prod = products.find(p => p.id === e.target.value);
+            setForm({ ...form, productId: e.target.value, unitId: "", agreedPrice: String(prod?.price || "") });
+          }} />
+        {form.productId && products.find(p => p.id === form.productId)?.serialized && (
+          <Select label="Select Specific Unit (IMEI) *"
+            options={[{ value: "", label: "Select unit…" }, ...availableUnitsFor(form.productId).map(u => ({ value: u.id, label: `${u.imei} · ${[u.color, u.storage, u.grade ? `Grade ${u.grade}` : ""].filter(Boolean).join(" · ") || "—"} · ${currency(u.price ?? products.find(p => p.id === form.productId)?.price ?? 0)}` }))]}
+            value={form.unitId}
+            onChange={e => {
+              const prod = products.find(p => p.id === form.productId);
+              const unit = prod?.units?.find(u => u.id === e.target.value);
+              setForm({ ...form, unitId: e.target.value, agreedPrice: String(unit?.price ?? prod?.price ?? "") });
+            }} />
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 10px" }}>
+          <Input label="Agreed Sale Price (£) *" type="number" min={0} value={form.agreedPrice} onChange={e => setForm({ ...form, agreedPrice: e.target.value })} />
+          <Input label="Deposit Amount (£) *" type="number" min={0} value={form.depositAmount} onChange={e => setForm({ ...form, depositAmount: e.target.value })} />
+          <div>
+            <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Balance Remaining</label>
+            <div style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#f8f9fc", color: "#f59e0b", fontSize: 14, fontWeight: 700, fontFamily: "'DM Sans', sans-serif" }}>{currency(Math.max(0, (+form.agreedPrice || 0) - (+form.depositAmount || 0)))}</div>
+          </div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Deposit Payment Method</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["cash", "💵 Cash"], ["card", "💳 Card"], ["mix", "🔀 Split"]].map(([val, label]) => (
+              <button key={val} type="button" onClick={() => setForm({ ...form, depositMethod: val, depositCashAmount: val !== "mix" ? "" : form.depositCashAmount })}
+                style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${form.depositMethod === val ? "#2563eb" : "#d4d8e0"}`, background: form.depositMethod === val ? "#2563eb15" : "transparent", color: form.depositMethod === val ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+            ))}
+          </div>
+          {form.depositMethod === "mix" && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+              <Input label="Cash (£)" type="number" min={0} value={form.depositCashAmount} onChange={e => setForm({ ...form, depositCashAmount: e.target.value })} style={{ marginBottom: 0 }} />
+              <div><label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5 }}>Card (£)</label><div style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#f8f9fc", color: "#374151", fontSize: 14 }}>{currency(Math.max(0, (+form.depositAmount || 0) - (+form.depositCashAmount || 0)))}</div></div>
+            </div>
+          )}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+          <Input label="Date Taken" type="date" value={form.dateTaken} onChange={e => setForm({ ...form, dateTaken: e.target.value, deadline: computeDeadline(e.target.value, 30) })} />
+          <Input label="Deadline (default 30 days)" type="date" value={form.deadline} onChange={e => setForm({ ...form, deadline: e.target.value })} />
+        </div>
+        <Input label="Notes (optional)" placeholder="e.g. Will collect weekend, negotiated price from £480" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+          <Btn variant="ghost" onClick={() => setShowModal(false)}>Cancel</Btn>
+          <Btn onClick={save}>{editing ? "Save Changes" : "Reserve & Take Deposit"}</Btn>
+        </div>
+      </Modal>
+
+      {/* Final Payment Modal */}
+      <Modal open={!!finalPayModal} onClose={() => setFinalPayModal(null)} title="Take Final Payment & Complete Sale">
+        {finalPayModal && (() => {
+          const balance = finalPayModal.agreedPrice - finalPayModal.depositAmount;
+          return (
+            <div>
+              <div style={{ background: "#f8f9fc", border: "1px solid #d4d8e0", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>{finalPayModal.productName}</div>
+                {finalPayModal.imei && <div style={{ fontSize: 12, color: "#f59e0b", fontFamily: "monospace", marginTop: 2 }}>IMEI: {finalPayModal.imei}</div>}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginTop: 10 }}>
+                  <div><div style={{ fontSize: 11, color: "#6b7280" }}>Agreed Price</div><div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>{currency(finalPayModal.agreedPrice)}</div></div>
+                  <div><div style={{ fontSize: 11, color: "#6b7280" }}>Deposit Paid</div><div style={{ fontSize: 16, fontWeight: 700, color: "#10b981" }}>{currency(finalPayModal.depositAmount)}</div></div>
+                  <div><div style={{ fontSize: 11, color: "#6b7280" }}>Balance Due</div><div style={{ fontSize: 18, fontWeight: 800, color: "#f59e0b" }}>{currency(balance)}</div></div>
+                </div>
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>How is the balance being paid?</label>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {[["cash", "💵 Cash"], ["card", "💳 Card"], ["mix", "🔀 Split"]].map(([val, label]) => (
+                    <button key={val} type="button" onClick={() => setFinalPayment({ method: val, cashAmount: val !== "mix" ? "" : finalPayment.cashAmount })}
+                      style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${finalPayment.method === val ? "#10b981" : "#d4d8e0"}`, background: finalPayment.method === val ? "#10b98115" : "transparent", color: finalPayment.method === val ? "#10b981" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+                  ))}
+                </div>
+                {finalPayment.method === "mix" && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+                    <Input label="Cash (£)" type="number" min={0} value={finalPayment.cashAmount} onChange={e => setFinalPayment({ ...finalPayment, cashAmount: e.target.value })} style={{ marginBottom: 0 }} />
+                    <div><label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5 }}>Card (£)</label><div style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#f8f9fc", color: "#374151", fontSize: 14 }}>{currency(Math.max(0, balance - (+finalPayment.cashAmount || 0)))}</div></div>
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <Btn variant="ghost" onClick={() => setFinalPayModal(null)}>Cancel</Btn>
+                <Btn variant="success" onClick={completeFinalPayment}>✅ Complete Sale ({currency(balance)})</Btn>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* Extend Deadline Modal */}
+      <Modal open={!!extendModal} onClose={() => setExtendModal(null)} title="Extend Deadline">
+        {extendModal && (
+          <div>
+            <div style={{ background: "#f8f9fc", border: "1px solid #d4d8e0", borderRadius: 10, padding: 12, marginBottom: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{extendModal.productName}</div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>Current deadline: <strong>{new Date(extendModal.deadline).toLocaleDateString("en-GB")}</strong></div>
+            </div>
+            <Input label="Extend by how many days?" type="number" min={1} value={extendDays} onChange={e => setExtendDays(e.target.value)} />
+            <div style={{ fontSize: 12, color: "#10b981", marginTop: -8, marginBottom: 12 }}>📅 New deadline: {(() => { const d = new Date(extendModal.deadline); d.setDate(d.getDate() + (parseInt(extendDays, 10) || 0)); return d.toLocaleDateString("en-GB"); })()}</div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <Btn variant="ghost" onClick={() => setExtendModal(null)}>Cancel</Btn>
+              <Btn variant="primary" onClick={confirmExtend}>📅 Extend Deadline</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+};
+
+const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) => {
   const [range, setRange] = useState("all");
   const now = new Date();
   const filterDate = (d) => {
@@ -2117,11 +2567,31 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [] }) => {
   });
   const totalTradeInSpend = tradeInCashOut + tradeInBankOut + tradeInCreditOut;
 
-  // Net (after refunds AND trade-in payouts)
-  const netSalesCash = salesCash - salesCashRefunded;
-  const netSalesCard = salesCard - salesCardRefunded;
-  const totalCashIn = netSalesCash + repairCash - tradeInCashOut;
-  const totalCardIn = netSalesCard + repairCard;
+  // Deposits taken in period (money IN, held until completion — don't also count their completed sale's first portion)
+  const periodDeposits = deposits.filter(d => filterDate(d.dateTaken));
+  let depositCashIn = 0, depositCardIn = 0;
+  periodDeposits.forEach(d => {
+    depositCashIn += (d.depositCashAmount || 0);
+    depositCardIn += (d.depositCardAmount || 0);
+  });
+  const totalDepositsIn = depositCashIn + depositCardIn;
+
+  // NOTE: When a deposit is completed, the full sale (deposit + final payment) is recorded as a sale.
+  // To avoid double-counting, we subtract the deposit amount from sales for deposits that completed IN THIS PERIOD.
+  const depositsCompletedInPeriod = deposits.filter(d => d.status === "Completed" && d.completedDate && filterDate(d.completedDate));
+  let depositDoubleCountCash = 0, depositDoubleCountCard = 0;
+  depositsCompletedInPeriod.forEach(d => {
+    // The deposit was already counted when it was taken (if that was in an earlier or same period).
+    // The sale record also counts it. So subtract once.
+    depositDoubleCountCash += (d.depositCashAmount || 0);
+    depositDoubleCountCard += (d.depositCardAmount || 0);
+  });
+
+  // Net (after refunds AND trade-in payouts AND fixing deposit double-counting)
+  const netSalesCash = salesCash - salesCashRefunded - depositDoubleCountCash;
+  const netSalesCard = salesCard - salesCardRefunded - depositDoubleCountCard;
+  const totalCashIn = netSalesCash + repairCash + depositCashIn - tradeInCashOut;
+  const totalCardIn = netSalesCard + repairCard + depositCardIn;
   const totalIntake = totalCashIn + totalCardIn;
   const totalRefunds = salesCashRefunded + salesCardRefunded;
 
@@ -2210,6 +2680,14 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [] }) => {
               <td style={{ padding: "8px 4px", textAlign: "right", color: "#2563eb" }}>{currency(repairCard)}</td>
               <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{currency(repairCash + repairCard)}</td>
             </tr>
+            {totalDepositsIn > 0 && (
+              <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                <td style={{ padding: "8px 4px", color: "#374151", fontWeight: 600 }}>Deposits Taken</td>
+                <td style={{ padding: "8px 4px", textAlign: "right", color: "#10b981" }}>{currency(depositCashIn)}</td>
+                <td style={{ padding: "8px 4px", textAlign: "right", color: "#2563eb" }}>{currency(depositCardIn)}</td>
+                <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{currency(totalDepositsIn)}</td>
+              </tr>
+            )}
             {totalTradeInSpend > 0 && (
               <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
                 <td style={{ padding: "8px 4px", color: "#f59e0b", fontWeight: 600 }}>Trade-In Payouts {tradeInBankOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>(+ {currency(tradeInBankOut)} bank)</span>}{tradeInCreditOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}> (+ {currency(tradeInCreditOut)} store credit)</span>}</td>
@@ -2367,21 +2845,23 @@ function MainApp({ user }) {
   const [customers, setCustomers] = useState([]);
   const [repairs, setRepairs] = useState([]);
   const [tradeIns, setTradeIns] = useState([]);
+  const [deposits, setDeposits] = useState([]);
   const [deletionLogs, setDeletionLogs] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     (async () => {
-      const [p, s, c, r, t, dl] = await Promise.all([
+      const [p, s, c, r, t, d, dl] = await Promise.all([
         loadData("pos-products-v3", SAMPLE_PRODUCTS),
         loadData("pos-sales-v3", []),
         loadData("pos-customers-v3", []),
         loadData("pos-repairs-v3", []),
         loadData("pos-tradeins-v3", []),
+        loadData("pos-deposits-v1", []),
         loadData("pos-deletion-logs-v1", []),
       ]);
-      setProducts(p); setSales(s); setCustomers(c); setRepairs(r); setTradeIns(t); setDeletionLogs(dl);
+      setProducts(p); setSales(s); setCustomers(c); setRepairs(r); setTradeIns(t); setDeposits(d); setDeletionLogs(dl);
       setLoaded(true);
     })();
   }, []);
@@ -2391,11 +2871,12 @@ function MainApp({ user }) {
   useEffect(() => { if (loaded) saveData("pos-customers-v3", customers); }, [customers, loaded]);
   useEffect(() => { if (loaded) saveData("pos-repairs-v3", repairs); }, [repairs, loaded]);
   useEffect(() => { if (loaded) saveData("pos-tradeins-v3", tradeIns); }, [tradeIns, loaded]);
+  useEffect(() => { if (loaded) saveData("pos-deposits-v1", deposits); }, [deposits, loaded]);
   useEffect(() => { if (loaded) saveData("pos-deletion-logs-v1", deletionLogs); }, [deletionLogs, loaded]);
 
   const resetAll = async () => {
     if (!confirm("Reset ALL data? This cannot be undone.")) return;
-    setProducts(SAMPLE_PRODUCTS); setSales([]); setCustomers([]); setRepairs([]); setTradeIns([]); setDeletionLogs([]);
+    setProducts(SAMPLE_PRODUCTS); setSales([]); setCustomers([]); setRepairs([]); setTradeIns([]); setDeposits([]); setDeletionLogs([]);
   };
 
   if (!loaded) return (
@@ -2439,7 +2920,8 @@ function MainApp({ user }) {
           {tab === "customers" && <CustomersTab customers={customers} setCustomers={setCustomers} sales={sales} />}
           {tab === "repairs" && <RepairsTab repairs={repairs} setRepairs={setRepairs} customers={customers} setCustomers={setCustomers} />}
           {tab === "tradeins" && <TradeInsTab tradeIns={tradeIns} setTradeIns={setTradeIns} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} />}
-          {tab === "reports" && <ReportsTab sales={sales} products={products} repairs={repairs} tradeIns={tradeIns} />}
+          {tab === "deposits" && <DepositsTab deposits={deposits} setDeposits={setDeposits} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} sales={sales} setSales={setSales} />}
+          {tab === "reports" && <ReportsTab sales={sales} products={products} repairs={repairs} tradeIns={tradeIns} deposits={deposits} />}
         </main>
       </div>
     </div>
