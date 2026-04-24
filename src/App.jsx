@@ -17,14 +17,16 @@ const fbApp = initializeApp(firebaseConfig);
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
 
-const TABS = ["pos", "inventory", "sales", "customers", "repairs", "reports"];
-const TAB_LABELS = { pos: "Point of Sale", inventory: "Inventory", sales: "Sales History", customers: "Customers", repairs: "Repairs", reports: "Reports" };
+const TABS = ["pos", "inventory", "sales", "customers", "repairs", "tradeins", "reports"];
+const TAB_LABELS = { pos: "Point of Sale", inventory: "Inventory", sales: "Sales History", customers: "Customers", repairs: "Repairs", tradeins: "Trade-Ins", reports: "Reports" };
+const TRADEIN_STATUSES = ["Received", "Testing", "Added to Stock", "Rejected"];
 const TAB_ICONS = {
   pos: "M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z",
   inventory: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
   sales: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4",
   customers: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z",
   repairs: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z",
+  tradeins: "M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4",
   reports: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
 };
 
@@ -1620,7 +1622,276 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
 
 // ─── Reports ────────────────────────────────────────────────────────
 
-const ReportsTab = ({ sales, products, repairs }) => {
+// ═══════════════════════════════════════════════════════════════════
+// TRADE-INS TAB
+// ═══════════════════════════════════════════════════════════════════
+
+const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products, setProducts }) => {
+  const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [search, setSearch] = useState("");
+  const [stockModal, setStockModal] = useState(null); // trade-in being added to stock
+  const [stockForm, setStockForm] = useState({ productId: "", newProductName: "", newProductSku: "", newProductCategory: "Smartphones", sellPrice: "" });
+
+  const blank = {
+    customer: "", customerName: "", customerPhone: "", customerEmail: "", _autoFilled: false,
+    deviceMake: "", deviceModel: "", imei: "", color: "", storage: "", grade: "",
+    notes: "", value: "", payment: "cash", status: "Received", dateIn: today(),
+    addedToStock: false, linkedUnitId: "", linkedProductId: "",
+  };
+  const [form, setForm] = useState(blank);
+
+  const openAdd = () => { setForm(blank); setEditing(null); setShowModal(true); };
+  const openEdit = (t) => {
+    const cust = customers.find(c => c.id === t.customer);
+    setForm({ ...blank, ...t, value: String(t.value || ""), customerName: cust?.name || "", customerPhone: cust?.phone || "", customerEmail: cust?.email || "", _autoFilled: !!cust });
+    setEditing(t.id);
+    setShowModal(true);
+  };
+
+  const save = () => {
+    if (!form.deviceMake || !form.deviceModel || !form.value) { alert("Device Make, Model, and Trade-in Value are required"); return; }
+    let customerId = form.customer;
+    if (!customerId && form.customerName.trim()) {
+      const newCust = { id: uid(), name: form.customerName.trim(), phone: form.customerPhone.trim(), email: form.customerEmail.trim(), notes: "", joined: today() };
+      setCustomers(prev => [...prev, newCust]);
+      customerId = newCust.id;
+    }
+    const item = {
+      customer: customerId,
+      deviceMake: form.deviceMake, deviceModel: form.deviceModel,
+      imei: form.imei, color: form.color, storage: form.storage, grade: form.grade,
+      notes: form.notes, value: +form.value || 0, payment: form.payment,
+      status: form.status, dateIn: form.dateIn || today(),
+      addedToStock: form.addedToStock || false,
+      linkedUnitId: form.linkedUnitId || "", linkedProductId: form.linkedProductId || "",
+    };
+    if (editing) {
+      setTradeIns(prev => prev.map(t => t.id === editing ? { ...t, ...item } : t));
+    } else {
+      setTradeIns(prev => [...prev, { id: uid(), ...item }]);
+    }
+    setShowModal(false);
+  };
+
+  const del = (id) => {
+    if (!confirm("Delete this trade-in record?")) return;
+    setTradeIns(prev => prev.filter(t => t.id !== id));
+  };
+
+  // Add trade-in unit to Inventory
+  const openAddToStock = (t) => {
+    // Try to match an existing product by model name
+    const possibleMatch = products.find(p => p.serialized && p.name.toLowerCase().includes(t.deviceModel.toLowerCase()));
+    setStockForm({
+      productId: possibleMatch?.id || "",
+      newProductName: possibleMatch ? "" : `${t.deviceMake} ${t.deviceModel}`.trim(),
+      newProductSku: possibleMatch ? "" : `${t.deviceMake.substring(0, 2).toUpperCase()}${t.deviceModel.replace(/\s/g, "").substring(0, 6).toUpperCase()}`,
+      newProductCategory: "Smartphones",
+      sellPrice: String(Math.round((t.value || 0) * 1.4)), // suggest 40% markup
+    });
+    setStockModal(t);
+  };
+
+  const confirmAddToStock = () => {
+    if (!stockModal) return;
+    const t = stockModal;
+    const sellPrice = +stockForm.sellPrice || 0;
+    if (!sellPrice) { alert("Enter a selling price"); return; }
+
+    const cust = customers.find(c => c.id === t.customer);
+    const supplier = cust ? `Trade-in: ${cust.name}` : "Trade-in customer";
+    const unitId = uid();
+    const newUnit = {
+      id: unitId,
+      imei: t.imei || `TI-${Date.now()}`,
+      color: t.color || "",
+      storage: t.storage || "",
+      grade: t.grade || "",
+      cost: t.value || 0,
+      price: sellPrice,
+      supplier,
+      status: "in_stock",
+    };
+
+    let productId = stockForm.productId;
+    if (productId) {
+      setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: [...(p.units || []), newUnit] } : p));
+    } else {
+      if (!stockForm.newProductName.trim() || !stockForm.newProductSku.trim()) { alert("Enter product name and SKU"); return; }
+      productId = uid();
+      const newProduct = {
+        id: productId,
+        name: stockForm.newProductName.trim(),
+        sku: stockForm.newProductSku.trim(),
+        category: stockForm.newProductCategory,
+        cost: t.value || 0, price: sellPrice,
+        serialized: true, units: [newUnit], stock: 0,
+      };
+      setProducts(prev => [...prev, newProduct]);
+    }
+
+    setTradeIns(prev => prev.map(tr => tr.id === t.id ? { ...tr, status: "Added to Stock", addedToStock: true, linkedUnitId: unitId, linkedProductId: productId } : tr));
+    setStockModal(null);
+  };
+
+  const filtered = tradeIns.filter(t => {
+    if (statusFilter !== "All" && t.status !== statusFilter) return false;
+    if (search) {
+      const s = search.toLowerCase();
+      const cust = customers.find(c => c.id === t.customer);
+      if (!(t.deviceMake || "").toLowerCase().includes(s)
+        && !(t.deviceModel || "").toLowerCase().includes(s)
+        && !(t.imei || "").toLowerCase().includes(s)
+        && !(cust?.name || "").toLowerCase().includes(s)
+        && !(cust?.phone || "").toLowerCase().includes(s)) return false;
+    }
+    return true;
+  });
+
+  const totalSpend = tradeIns.reduce((sum, t) => sum + (t.value || 0), 0);
+  const totalInStock = tradeIns.filter(t => t.addedToStock).length;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+        <StatCard label="Total Trade-ins" value={tradeIns.length} color="#2563eb" />
+        <StatCard label="Total Spend" value={currency(totalSpend)} color="#f59e0b" sub="Paid to customers" />
+        <StatCard label="Added to Stock" value={totalInStock} color="#10b981" />
+        <StatCard label="Pending" value={tradeIns.filter(t => !t.addedToStock && t.status !== "Rejected").length} color="#6b7280" />
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 12, alignItems: "center" }}>
+        <div style={{ flex: 1 }}><Input placeholder="Search by device, IMEI, customer…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
+        <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} options={["All", ...TRADEIN_STATUSES]} style={{ marginBottom: 0, width: 180 }} />
+        <Btn variant="success" onClick={openAdd}>+ New Trade-In</Btn>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", paddingRight: 6 }}>
+        {filtered.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 40 }}>No trade-ins yet. Click "+ New Trade-In" to record one.</div>}
+        {filtered.map(t => {
+          const cust = customers.find(c => c.id === t.customer);
+          const statusColor = t.status === "Added to Stock" ? "#10b981" : t.status === "Rejected" ? "#ef4444" : t.status === "Testing" ? "#f59e0b" : "#6b7280";
+          return (
+            <Card key={t.id} style={{ marginBottom: 10, cursor: "pointer" }} onClick={() => openEdit(t)}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>{t.deviceMake} {t.deviceModel}</div>
+                    <Badge color={statusColor}>{t.status}</Badge>
+                    {t.grade && <Badge color={t.grade === "A" ? "#10b981" : t.grade === "B" ? "#3b82f6" : t.grade === "C" ? "#f59e0b" : "#ef4444"}>Grade {t.grade}</Badge>}
+                  </div>
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>{[t.color, t.storage].filter(Boolean).join(" · ")}{t.imei ? ` · IMEI: ${t.imei}` : ""}</div>
+                  <div style={{ fontSize: 13, color: "#374151", marginTop: 4 }}>👤 {cust?.name || "Unknown"}{cust?.phone ? ` · ${cust.phone}` : ""}</div>
+                  {t.notes && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontStyle: "italic" }}>📝 {t.notes}</div>}
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: "#f59e0b" }}>{currency(t.value || 0)}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{t.payment === "cash" ? "💵 Cash" : t.payment === "credit" ? "🎟 Store Credit" : "🏦 Bank Transfer"}</div>
+                  <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>{new Date(t.dateIn).toLocaleDateString("en-GB")}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", paddingTop: 10, borderTop: "1px solid #e5e7eb" }}>
+                <button onClick={e => { e.stopPropagation(); openEdit(t); }}
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #6b7280", background: "#6b728015", color: "#374151", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>✏️ Edit</button>
+                {!t.addedToStock && t.status !== "Rejected" && <button onClick={e => { e.stopPropagation(); openAddToStock(t); }}
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #10b981", background: "#10b98115", color: "#10b981", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>📦 Add to Stock</button>}
+                {t.addedToStock && <span style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, background: "#10b98115", color: "#10b981", fontWeight: 600 }}>✅ In Inventory</span>}
+                <button onClick={e => { e.stopPropagation(); del(t.id); }}
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #ef4444", background: "transparent", color: "#ef4444", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🗑 Delete</button>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* New/Edit Trade-In Modal */}
+      <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Trade-In" : "New Trade-In"}>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Customer Phone Number *</label>
+          <input placeholder="e.g. 07778 123456" value={form.customerPhone}
+            onChange={e => {
+              const phone = e.target.value;
+              const found = customers.find(c => c.phone && c.phone.replace(/\s/g, "") === phone.replace(/\s/g, ""));
+              if (found) setForm(prev => ({ ...prev, customerPhone: phone, customer: found.id, customerName: found.name, customerEmail: found.email || "", _autoFilled: true }));
+              else setForm(prev => ({ ...prev, customerPhone: phone, customer: "", customerName: prev._autoFilled ? "" : prev.customerName, customerEmail: prev._autoFilled ? "" : prev.customerEmail, _autoFilled: false }));
+            }}
+            style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${form._autoFilled ? "#10b981" : "#d4d8e0"}`, background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+          {form._autoFilled && <div style={{ fontSize: 11, color: "#10b981", marginTop: 4 }}>✅ Returning customer found — details auto-filled</div>}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+          <Input label="Customer Name *" placeholder="Full name" value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value })} />
+          <Input label="Email (optional)" placeholder="name@example.com" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+          <Input label="Device Make *" placeholder="e.g. Apple, Samsung" value={form.deviceMake} onChange={e => setForm({ ...form, deviceMake: e.target.value })} />
+          <Input label="Device Model *" placeholder="e.g. iPhone 13, Galaxy S22" value={form.deviceModel} onChange={e => setForm({ ...form, deviceModel: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "0 10px" }}>
+          <Input label="IMEI/Serial (optional)" placeholder="353456..." value={form.imei} onChange={e => setForm({ ...form, imei: e.target.value })} />
+          <Input label="Colour" placeholder="Black" value={form.color} onChange={e => setForm({ ...form, color: e.target.value })} />
+          <Input label="Storage" placeholder="128GB" value={form.storage} onChange={e => setForm({ ...form, storage: e.target.value })} />
+          <Select label="Grade" options={[{ value: "", label: "—" }, ...GRADES.map(g => ({ value: g, label: `Grade ${g}` }))]} value={form.grade} onChange={e => setForm({ ...form, grade: e.target.value })} />
+        </div>
+        <Input label="Condition Notes (optional)" placeholder="e.g. Small scratch on back, battery 89%, includes charger" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+          <Input label="Trade-in Value (£) *" type="number" min={0} value={form.value} onChange={e => setForm({ ...form, value: e.target.value })} />
+          <Select label="Status" options={TRADEIN_STATUSES} value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Payment to Customer</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["cash", "💵 Cash"], ["credit", "🎟 Store Credit"], ["bank", "🏦 Bank Transfer"]].map(([val, label]) => (
+              <button key={val} type="button" onClick={() => setForm({ ...form, payment: val })}
+                style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${form.payment === val ? "#f59e0b" : "#d4d8e0"}`, background: form.payment === val ? "#f59e0b15" : "transparent", color: form.payment === val ? "#f59e0b" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+          <Btn variant="ghost" onClick={() => setShowModal(false)}>Cancel</Btn>
+          <Btn onClick={save}>{editing ? "Save Changes" : "Create Trade-In"}</Btn>
+        </div>
+      </Modal>
+
+      {/* Add to Stock Modal */}
+      <Modal open={!!stockModal} onClose={() => setStockModal(null)} title="Add Trade-In to Inventory">
+        {stockModal && (
+          <div>
+            <div style={{ background: "#f8f9fc", border: "1px solid #d4d8e0", borderRadius: 10, padding: 12, marginBottom: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{stockModal.deviceMake} {stockModal.deviceModel}</div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{[stockModal.color, stockModal.storage, stockModal.grade ? `Grade ${stockModal.grade}` : ""].filter(Boolean).join(" · ")}</div>
+              <div style={{ fontSize: 12, color: "#f59e0b", marginTop: 4 }}>Paid customer: {currency(stockModal.value || 0)} (this becomes the unit cost)</div>
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5 }}>Link to Existing Product</label>
+              <Select value={stockForm.productId} onChange={e => setStockForm({ ...stockForm, productId: e.target.value })}
+                options={[{ value: "", label: "— Create new product —" }, ...products.filter(p => p.serialized).map(p => ({ value: p.id, label: `${p.name} (${p.sku})` }))]} />
+            </div>
+            {!stockForm.productId && (
+              <div style={{ background: "#eef2ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#2563eb", marginBottom: 8 }}>🆕 New Product Details</div>
+                <Input label="Product Name" value={stockForm.newProductName} onChange={e => setStockForm({ ...stockForm, newProductName: e.target.value })} />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+                  <Input label="SKU" value={stockForm.newProductSku} onChange={e => setStockForm({ ...stockForm, newProductSku: e.target.value })} />
+                  <Select label="Category" options={CATEGORIES} value={stockForm.newProductCategory} onChange={e => setStockForm({ ...stockForm, newProductCategory: e.target.value })} />
+                </div>
+              </div>
+            )}
+            <Input label="Selling Price (£) *" type="number" min={0} value={stockForm.sellPrice} onChange={e => setStockForm({ ...stockForm, sellPrice: e.target.value })} />
+            <div style={{ fontSize: 11, color: "#10b981", marginTop: -8, marginBottom: 12 }}>💰 Estimated profit: {currency(Math.max(0, (+stockForm.sellPrice || 0) - (stockModal.value || 0)))}</div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <Btn variant="ghost" onClick={() => setStockModal(null)}>Cancel</Btn>
+              <Btn variant="success" onClick={confirmAddToStock}>📦 Add to Inventory</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+};
+
+const ReportsTab = ({ sales, products, repairs, tradeIns = [] }) => {
   const [range, setRange] = useState("all");
   const now = new Date();
   const filterDate = (d) => {
@@ -1680,10 +1951,20 @@ const ReportsTab = ({ sales, products, repairs }) => {
     repairCard += (r.cardPaid || (r.payment === "card" ? (r.cost || 0) : 0));
   });
 
-  // Net (after refunds)
+  // Trade-in payouts (money going OUT to customers)
+  const periodTradeIns = tradeIns.filter(t => filterDate(t.dateIn) && t.status !== "Rejected");
+  let tradeInCashOut = 0, tradeInBankOut = 0, tradeInCreditOut = 0;
+  periodTradeIns.forEach(t => {
+    if (t.payment === "cash") tradeInCashOut += (t.value || 0);
+    else if (t.payment === "bank") tradeInBankOut += (t.value || 0);
+    else if (t.payment === "credit") tradeInCreditOut += (t.value || 0);
+  });
+  const totalTradeInSpend = tradeInCashOut + tradeInBankOut + tradeInCreditOut;
+
+  // Net (after refunds AND trade-in payouts)
   const netSalesCash = salesCash - salesCashRefunded;
   const netSalesCard = salesCard - salesCardRefunded;
-  const totalCashIn = netSalesCash + repairCash;
+  const totalCashIn = netSalesCash + repairCash - tradeInCashOut;
   const totalCardIn = netSalesCard + repairCard;
   const totalIntake = totalCashIn + totalCardIn;
   const totalRefunds = salesCashRefunded + salesCardRefunded;
@@ -1773,6 +2054,14 @@ const ReportsTab = ({ sales, products, repairs }) => {
               <td style={{ padding: "8px 4px", textAlign: "right", color: "#2563eb" }}>{currency(repairCard)}</td>
               <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{currency(repairCash + repairCard)}</td>
             </tr>
+            {totalTradeInSpend > 0 && (
+              <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                <td style={{ padding: "8px 4px", color: "#f59e0b", fontWeight: 600 }}>Trade-In Payouts {tradeInBankOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>(+ {currency(tradeInBankOut)} bank)</span>}{tradeInCreditOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}> (+ {currency(tradeInCreditOut)} store credit)</span>}</td>
+                <td style={{ padding: "8px 4px", textAlign: "right", color: "#f59e0b" }}>-{currency(tradeInCashOut)}</td>
+                <td style={{ padding: "8px 4px", textAlign: "right", color: "#9ca3af" }}>—</td>
+                <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#f59e0b" }}>-{currency(tradeInCashOut)}</td>
+              </tr>
+            )}
             <tr style={{ borderTop: "2px solid #111827" }}>
               <td style={{ padding: "10px 4px", fontWeight: 800, color: "#111827", fontSize: 14 }}>NET TOTAL</td>
               <td style={{ padding: "10px 4px", textAlign: "right", fontWeight: 800, color: "#10b981", fontSize: 14 }}>{currency(totalCashIn)}</td>
@@ -1921,18 +2210,20 @@ function MainApp({ user }) {
   const [sales, setSales] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [repairs, setRepairs] = useState([]);
+  const [tradeIns, setTradeIns] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     (async () => {
-      const [p, s, c, r] = await Promise.all([
+      const [p, s, c, r, t] = await Promise.all([
         loadData("pos-products-v3", SAMPLE_PRODUCTS),
         loadData("pos-sales-v3", []),
         loadData("pos-customers-v3", []),
         loadData("pos-repairs-v3", []),
+        loadData("pos-tradeins-v3", []),
       ]);
-      setProducts(p); setSales(s); setCustomers(c); setRepairs(r);
+      setProducts(p); setSales(s); setCustomers(c); setRepairs(r); setTradeIns(t);
       setLoaded(true);
     })();
   }, []);
@@ -1941,10 +2232,11 @@ function MainApp({ user }) {
   useEffect(() => { if (loaded) saveData("pos-sales-v3", sales); }, [sales, loaded]);
   useEffect(() => { if (loaded) saveData("pos-customers-v3", customers); }, [customers, loaded]);
   useEffect(() => { if (loaded) saveData("pos-repairs-v3", repairs); }, [repairs, loaded]);
+  useEffect(() => { if (loaded) saveData("pos-tradeins-v3", tradeIns); }, [tradeIns, loaded]);
 
   const resetAll = async () => {
     if (!confirm("Reset ALL data? This cannot be undone.")) return;
-    setProducts(SAMPLE_PRODUCTS); setSales([]); setCustomers([]); setRepairs([]);
+    setProducts(SAMPLE_PRODUCTS); setSales([]); setCustomers([]); setRepairs([]); setTradeIns([]);
   };
 
   if (!loaded) return (
@@ -1987,7 +2279,8 @@ function MainApp({ user }) {
           {tab === "sales" && <SalesHistoryTab sales={sales} setSales={setSales} products={products} setProducts={setProducts} customers={customers} />}
           {tab === "customers" && <CustomersTab customers={customers} setCustomers={setCustomers} sales={sales} />}
           {tab === "repairs" && <RepairsTab repairs={repairs} setRepairs={setRepairs} customers={customers} setCustomers={setCustomers} />}
-          {tab === "reports" && <ReportsTab sales={sales} products={products} repairs={repairs} />}
+          {tab === "tradeins" && <TradeInsTab tradeIns={tradeIns} setTradeIns={setTradeIns} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} />}
+          {tab === "reports" && <ReportsTab sales={sales} products={products} repairs={repairs} tradeIns={tradeIns} />}
         </main>
       </div>
     </div>
