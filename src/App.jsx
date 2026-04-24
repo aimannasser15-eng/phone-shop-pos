@@ -790,7 +790,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
 
 // ─── Inventory ──────────────────────────────────────────────────────
 
-const InventoryTab = ({ products, setProducts }) => {
+const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, user }) => {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
@@ -879,7 +879,75 @@ const InventoryTab = ({ products, setProducts }) => {
     else { setProducts(prev => [...prev, { ...item, id: uid() }]); }
     setShowModal(false);
   };
-  const del = (id) => setProducts(prev => prev.filter(p => p.id !== id));
+  // ─── Deletion Audit System ──────────────────────────────────────
+  const [deleteModal, setDeleteModal] = useState(null); // { type: "product"|"unit", target: obj, productName?: string }
+  const [deleteReason, setDeleteReason] = useState("");
+  const [showLogsModal, setShowLogsModal] = useState(false);
+
+  const askDeleteProduct = (product) => {
+    setDeleteModal({ type: "product", target: product });
+    setDeleteReason("");
+  };
+  const askDeleteUnit = (product, unit) => {
+    setDeleteModal({ type: "unit", target: unit, productName: product.name, productId: product.id });
+    setDeleteReason("");
+  };
+
+  const confirmDelete = () => {
+    if (!deleteReason.trim()) { alert("You must enter a reason for deletion"); return; }
+    if (deleteReason.trim().length < 5) { alert("Please provide a more detailed reason (at least 5 characters)"); return; }
+
+    const log = {
+      id: uid(),
+      type: deleteModal.type,
+      date: new Date().toISOString(),
+      user: user?.email || "Unknown",
+      reason: deleteReason.trim(),
+    };
+
+    if (deleteModal.type === "product") {
+      const p = deleteModal.target;
+      log.item = {
+        name: p.name, sku: p.sku, category: p.category,
+        cost: p.cost, price: p.price,
+        serialized: p.serialized,
+        unitCount: (p.units || []).length,
+        inStockUnits: (p.units || []).filter(u => u.status === "in_stock").length,
+        stock: p.stock || 0,
+      };
+      setProducts(prev => prev.filter(x => x.id !== p.id));
+    } else {
+      const u = deleteModal.target;
+      log.item = {
+        productName: deleteModal.productName,
+        imei: u.imei, color: u.color, storage: u.storage, grade: u.grade,
+        cost: u.cost, price: u.price, supplier: u.supplier, status: u.status,
+      };
+      setProducts(prev => prev.map(p => p.id === deleteModal.productId ? { ...p, units: (p.units || []).filter(x => x.id !== u.id) } : p));
+    }
+
+    setDeletionLogs(prev => [log, ...prev]);
+    setDeleteModal(null);
+    setDeleteReason("");
+  };
+
+  const exportLogs = () => {
+    const rows = deletionLogs.map(l => ({
+      Date: new Date(l.date).toLocaleString("en-GB"),
+      "Deleted By": l.user,
+      Type: l.type === "product" ? "Product" : "Unit (Phone)",
+      Item: l.type === "product" ? l.item.name : `${l.item.productName} — IMEI ${l.item.imei}`,
+      Details: l.type === "product"
+        ? `SKU: ${l.item.sku}, ${l.item.unitCount} units (${l.item.inStockUnits} in stock), Qty: ${l.item.stock}`
+        : `${[l.item.color, l.item.storage, l.item.grade ? `Grade ${l.item.grade}` : ""].filter(Boolean).join(" · ")}, Cost: £${l.item.cost}, Price: £${l.item.price}, Supplier: ${l.item.supplier || "—"}, Status: ${l.item.status}`,
+      Reason: l.reason,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [{ wch: 20 }, { wch: 28 }, { wch: 14 }, { wch: 40 }, { wch: 60 }, { wch: 50 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Deletion Log");
+    XLSX.writeFile(wb, `deletion-log-${today()}.xlsx`);
+  };
 
   const addUnit = (productId) => {
     if (!newImei.trim()) return;
@@ -896,9 +964,6 @@ const InventoryTab = ({ products, setProducts }) => {
     setNewUnitPrice("");
     setNewSupplier("");
     setNewGrade("");
-  };
-  const removeUnit = (productId, unitId) => {
-    setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: (p.units || []).filter(u => u.id !== unitId) } : p));
   };
 
   const filtered = products.filter(p =>
@@ -922,6 +987,7 @@ const InventoryTab = ({ products, setProducts }) => {
       <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "flex-end" }}>
         <div style={{ flex: 1 }}><Input placeholder="Search by name, SKU, or IMEI…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
         <Select options={["All", ...CATEGORIES]} value={catFilter} onChange={e => setCatFilter(e.target.value)} style={{ width: 160, marginBottom: 0 }} />
+        <Btn variant="ghost" onClick={() => setShowLogsModal(true)}>📋 Deletion Log {deletionLogs.length > 0 && <span style={{ background: "#ef4444", color: "#fff", borderRadius: 10, padding: "1px 7px", fontSize: 11, marginLeft: 4 }}>{deletionLogs.length}</span>}</Btn>
         <Btn variant="warning" onClick={() => { setImportPreview(null); setImportError(""); setImportModal(true); }}>📥 Import Excel</Btn>
         <Btn onClick={openAdd}>+ Add Product</Btn>
       </div>
@@ -953,7 +1019,7 @@ const InventoryTab = ({ products, setProducts }) => {
                   <td style={{ padding: "10px 8px", textAlign: "center", whiteSpace: "nowrap" }}>
                     {p.serialized && <button onClick={() => { setUnitsModal(p); setNewImei(""); setNewColor(""); setNewStorage(""); setNewUnitCost(""); setNewUnitPrice(""); setNewSupplier(""); setNewGrade(""); }} style={{ background: "none", border: "none", color: "#f59e0b", cursor: "pointer", marginRight: 6, fontSize: 13, fontWeight: 600 }}>Units</button>}
                     <button onClick={() => openEdit(p)} style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", marginRight: 6, fontSize: 13 }}>Edit</button>
-                    <button onClick={() => del(p.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 13 }}>Del</button>
+                    <button onClick={() => askDeleteProduct(p)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 13 }}>Del</button>
                   </td>
                 </tr>
               );
@@ -1039,7 +1105,7 @@ const InventoryTab = ({ products, setProducts }) => {
                       </td>
                       <td style={{ padding: "8px", textAlign: "center" }}>
                         {u.status === "in_stock" ? (
-                          <button onClick={() => removeUnit(currentUnitsProduct.id, u.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 12 }}>Remove</button>
+                          <button onClick={() => askDeleteUnit(currentUnitsProduct, u)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 12 }}>Remove</button>
                         ) : <span style={{ color: "#9ca3af", fontSize: 11 }}>—</span>}
                       </td>
                     </tr>
@@ -1123,11 +1189,101 @@ const InventoryTab = ({ products, setProducts }) => {
           </div>
         )}
       </Modal>
+
+      {/* Delete Reason Modal */}
+      <Modal open={!!deleteModal} onClose={() => setDeleteModal(null)} title={deleteModal?.type === "product" ? "Delete Product" : "Delete Unit from Stock"}>
+        {deleteModal && (
+          <div>
+            <div style={{ background: "#fef2f2", border: "1px solid #ef4444", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#991b1b", marginBottom: 6 }}>⚠️ You are about to delete:</div>
+              {deleteModal.type === "product" ? (
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>{deleteModal.target.name}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>SKU: {deleteModal.target.sku} · {deleteModal.target.category}</div>
+                  {deleteModal.target.serialized ? (
+                    <div style={{ fontSize: 12, color: "#991b1b", marginTop: 4, fontWeight: 600 }}>
+                      ⚠ This will delete {(deleteModal.target.units || []).length} units including {(deleteModal.target.units || []).filter(u => u.status === "in_stock").length} in stock
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: "#991b1b", marginTop: 4, fontWeight: 600 }}>⚠ Current quantity: {deleteModal.target.stock || 0}</div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 14, color: "#111827" }}><strong>{deleteModal.productName}</strong></div>
+                  <div style={{ fontSize: 13, color: "#f59e0b", fontFamily: "monospace", marginTop: 4 }}>IMEI: {deleteModal.target.imei}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{[deleteModal.target.color, deleteModal.target.storage, deleteModal.target.grade ? `Grade ${deleteModal.target.grade}` : ""].filter(Boolean).join(" · ")}</div>
+                  <div style={{ fontSize: 12, color: "#374151", marginTop: 4 }}>Cost: {currency(deleteModal.target.cost || 0)} · Price: {currency(deleteModal.target.price || 0)}</div>
+                </div>
+              )}
+            </div>
+            <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#111827", marginBottom: 6 }}>Reason for deletion (required) *</label>
+            <textarea
+              placeholder="e.g. Damaged during handling, sent back to supplier, duplicate entry, faulty unit returned to wholesaler…"
+              value={deleteReason}
+              onChange={e => setDeleteReason(e.target.value)}
+              autoFocus
+              rows={3}
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none", resize: "vertical" }}
+            />
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>This action will be logged and visible to the owner. Please be specific.</div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+              <Btn variant="ghost" onClick={() => setDeleteModal(null)}>Cancel</Btn>
+              <Btn variant="danger" onClick={confirmDelete}>🗑 Delete & Log</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Deletion Logs Modal */}
+      <Modal wide open={showLogsModal} onClose={() => setShowLogsModal(false)} title="📋 Deletion History Log">
+        <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 13, color: "#6b7280" }}>All inventory deletions recorded with reason, date, and staff member.</div>
+          {deletionLogs.length > 0 && <Btn variant="ghost" onClick={exportLogs}>⬇ Export to Excel</Btn>}
+        </div>
+        {deletionLogs.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 40, color: "#9ca3af" }}>No deletions recorded yet.</div>
+        ) : (
+          <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
+            {deletionLogs.map(log => (
+              <div key={log.id} style={{ background: "#f8f9fc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 12, marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                  <div>
+                    <Badge color={log.type === "product" ? "#dc2626" : "#f59e0b"}>{log.type === "product" ? "Product Deleted" : "Unit Deleted"}</Badge>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginLeft: 10 }}>
+                      {log.type === "product" ? log.item.name : log.item.productName}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "right" }}>
+                    {new Date(log.date).toLocaleString("en-GB")}<br />
+                    by <span style={{ color: "#2563eb", fontWeight: 600 }}>{log.user}</span>
+                  </div>
+                </div>
+                {log.type === "product" ? (
+                  <div style={{ fontSize: 12, color: "#374151", marginBottom: 6 }}>
+                    SKU: <strong>{log.item.sku}</strong> · {log.item.category} · {log.item.serialized ? `${log.item.unitCount} units (${log.item.inStockUnits} in stock)` : `Qty: ${log.item.stock}`} · Cost: {currency(log.item.cost)} · Price: {currency(log.item.price)}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: "#374151", marginBottom: 6 }}>
+                    IMEI: <span style={{ color: "#f59e0b", fontFamily: "monospace", fontWeight: 700 }}>{log.item.imei}</span>
+                    {" · "}{[log.item.color, log.item.storage, log.item.grade ? `Grade ${log.item.grade}` : ""].filter(Boolean).join(" · ")}
+                    {" · "}Cost: {currency(log.item.cost || 0)} · Price: {currency(log.item.price || 0)}
+                    {log.item.supplier ? ` · Supplier: ${log.item.supplier}` : ""}
+                    {" · Status: "}<strong>{log.item.status}</strong>
+                  </div>
+                )}
+                <div style={{ background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 8, padding: 8, marginTop: 6 }}>
+                  <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Reason</div>
+                  <div style={{ fontSize: 13, color: "#111827" }}>{log.reason}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
-
-// ─── Sales History ──────────────────────────────────────────────────
 
 const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) => {
   const [search, setSearch] = useState("");
@@ -2211,19 +2367,21 @@ function MainApp({ user }) {
   const [customers, setCustomers] = useState([]);
   const [repairs, setRepairs] = useState([]);
   const [tradeIns, setTradeIns] = useState([]);
+  const [deletionLogs, setDeletionLogs] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     (async () => {
-      const [p, s, c, r, t] = await Promise.all([
+      const [p, s, c, r, t, dl] = await Promise.all([
         loadData("pos-products-v3", SAMPLE_PRODUCTS),
         loadData("pos-sales-v3", []),
         loadData("pos-customers-v3", []),
         loadData("pos-repairs-v3", []),
         loadData("pos-tradeins-v3", []),
+        loadData("pos-deletion-logs-v1", []),
       ]);
-      setProducts(p); setSales(s); setCustomers(c); setRepairs(r); setTradeIns(t);
+      setProducts(p); setSales(s); setCustomers(c); setRepairs(r); setTradeIns(t); setDeletionLogs(dl);
       setLoaded(true);
     })();
   }, []);
@@ -2233,10 +2391,11 @@ function MainApp({ user }) {
   useEffect(() => { if (loaded) saveData("pos-customers-v3", customers); }, [customers, loaded]);
   useEffect(() => { if (loaded) saveData("pos-repairs-v3", repairs); }, [repairs, loaded]);
   useEffect(() => { if (loaded) saveData("pos-tradeins-v3", tradeIns); }, [tradeIns, loaded]);
+  useEffect(() => { if (loaded) saveData("pos-deletion-logs-v1", deletionLogs); }, [deletionLogs, loaded]);
 
   const resetAll = async () => {
     if (!confirm("Reset ALL data? This cannot be undone.")) return;
-    setProducts(SAMPLE_PRODUCTS); setSales([]); setCustomers([]); setRepairs([]); setTradeIns([]);
+    setProducts(SAMPLE_PRODUCTS); setSales([]); setCustomers([]); setRepairs([]); setTradeIns([]); setDeletionLogs([]);
   };
 
   if (!loaded) return (
@@ -2275,7 +2434,7 @@ function MainApp({ user }) {
         </header>
         <main style={{ flex: 1, padding: 20, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           {tab === "pos" && <POSTab products={products} setProducts={setProducts} sales={sales} setSales={setSales} customers={customers} />}
-          {tab === "inventory" && <InventoryTab products={products} setProducts={setProducts} />}
+          {tab === "inventory" && <InventoryTab products={products} setProducts={setProducts} deletionLogs={deletionLogs} setDeletionLogs={setDeletionLogs} user={user} />}
           {tab === "sales" && <SalesHistoryTab sales={sales} setSales={setSales} products={products} setProducts={setProducts} customers={customers} />}
           {tab === "customers" && <CustomersTab customers={customers} setCustomers={setCustomers} sales={sales} />}
           {tab === "repairs" && <RepairsTab repairs={repairs} setRepairs={setRepairs} customers={customers} setCustomers={setCustomers} />}
