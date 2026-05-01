@@ -1793,9 +1793,10 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
   const [stockForm, setStockForm] = useState({ productId: "", newProductName: "", newProductSku: "", newProductCategory: "Smartphones", sellPrice: "" });
 
   const blank = {
-    customer: "", customerName: "", customerPhone: "", customerEmail: "", _autoFilled: false,
-    deviceMake: "", deviceModel: "", imei: "", color: "", storage: "", grade: "",
-    notes: "", value: "", payment: "cash", status: "Received", dateIn: today(),
+    customer: "", customerName: "", customerPhone: "", customerEmail: "", customerAddress: "", _autoFilled: false,
+    deviceModel: "", imei: "", color: "", storage: "", grade: "",
+    notes: "", value: "", payment: "cash", dateIn: today(),
+    idSeen: false, idType: "",
     addedToStock: false, linkedUnitId: "", linkedProductId: "",
   };
   const [form, setForm] = useState(blank);
@@ -1803,25 +1804,32 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
   const openAdd = () => { setForm(blank); setEditing(null); setShowModal(true); };
   const openEdit = (t) => {
     const cust = customers.find(c => c.id === t.customer);
-    setForm({ ...blank, ...t, value: String(t.value || ""), customerName: cust?.name || "", customerPhone: cust?.phone || "", customerEmail: cust?.email || "", _autoFilled: !!cust });
+    setForm({ ...blank, ...t, value: String(t.value || ""), customerName: cust?.name || "", customerPhone: cust?.phone || "", customerEmail: cust?.email || "", customerAddress: cust?.address || t.customerAddress || "", _autoFilled: !!cust });
     setEditing(t.id);
     setShowModal(true);
   };
 
   const save = () => {
-    if (!form.deviceMake || !form.deviceModel || !form.value) { alert("Device Make, Model, and Trade-in Value are required"); return; }
+    if (!form.deviceModel || !form.value) { alert("Device Model and Trade-in Value are required"); return; }
+    if (!form.idSeen) { alert("⚠️ You must confirm that customer ID has been seen before completing a trade-in."); return; }
     let customerId = form.customer;
     if (!customerId && form.customerName.trim()) {
-      const newCust = { id: uid(), name: form.customerName.trim(), phone: form.customerPhone.trim(), email: form.customerEmail.trim(), notes: "", joined: today() };
+      const newCust = { id: uid(), name: form.customerName.trim(), phone: form.customerPhone.trim(), email: form.customerEmail.trim(), address: form.customerAddress.trim(), notes: "", joined: today() };
       setCustomers(prev => [...prev, newCust]);
       customerId = newCust.id;
+    } else if (customerId && form.customerAddress.trim()) {
+      // Update existing customer's address if provided
+      setCustomers(prev => prev.map(c => c.id === customerId ? { ...c, address: form.customerAddress.trim() } : c));
     }
     const item = {
       customer: customerId,
-      deviceMake: form.deviceMake, deviceModel: form.deviceModel,
+      customerAddress: form.customerAddress.trim(),
+      deviceModel: form.deviceModel,
       imei: form.imei, color: form.color, storage: form.storage, grade: form.grade,
       notes: form.notes, value: +form.value || 0, payment: form.payment,
-      status: form.status, dateIn: form.dateIn || today(),
+      idSeen: form.idSeen, idType: form.idType,
+      dateIn: form.dateIn || today(),
+      status: editing ? form.status : "Received", // keep existing status if editing, default Received for new
       addedToStock: form.addedToStock || false,
       linkedUnitId: form.linkedUnitId || "", linkedProductId: form.linkedProductId || "",
     };
@@ -1844,8 +1852,8 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
     const possibleMatch = products.find(p => p.serialized && p.name.toLowerCase().includes(t.deviceModel.toLowerCase()));
     setStockForm({
       productId: possibleMatch?.id || "",
-      newProductName: possibleMatch ? "" : `${t.deviceMake} ${t.deviceModel}`.trim(),
-      newProductSku: possibleMatch ? "" : `${t.deviceMake.substring(0, 2).toUpperCase()}${t.deviceModel.replace(/\s/g, "").substring(0, 6).toUpperCase()}`,
+      newProductName: possibleMatch ? "" : t.deviceModel,
+      newProductSku: possibleMatch ? "" : t.deviceModel.replace(/\s/g, "").substring(0, 8).toUpperCase(),
       newProductCategory: "Smartphones",
       sellPrice: String(Math.round((t.value || 0) * 1.4)), // suggest 40% markup
     });
@@ -1895,12 +1903,12 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
   };
 
   const filtered = tradeIns.filter(t => {
-    if (statusFilter !== "All" && t.status !== statusFilter) return false;
+    if (statusFilter === "pending" && t.addedToStock) return false;
+    if (statusFilter === "stocked" && !t.addedToStock) return false;
     if (search) {
       const s = search.toLowerCase();
       const cust = customers.find(c => c.id === t.customer);
-      if (!(t.deviceMake || "").toLowerCase().includes(s)
-        && !(t.deviceModel || "").toLowerCase().includes(s)
+      if (!(t.deviceModel || "").toLowerCase().includes(s)
         && !(t.imei || "").toLowerCase().includes(s)
         && !(cust?.name || "").toLowerCase().includes(s)
         && !(cust?.phone || "").toLowerCase().includes(s)) return false;
@@ -1917,12 +1925,12 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
         <StatCard label="Total Trade-ins" value={tradeIns.length} color="#2563eb" />
         <StatCard label="Total Spend" value={currency(totalSpend)} color="#f59e0b" sub="Paid to customers" />
         <StatCard label="Added to Stock" value={totalInStock} color="#10b981" />
-        <StatCard label="Pending" value={tradeIns.filter(t => !t.addedToStock && t.status !== "Rejected").length} color="#6b7280" />
+        <StatCard label="Pending" value={tradeIns.filter(t => !t.addedToStock).length} color="#6b7280" />
       </div>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 12, alignItems: "center" }}>
         <div style={{ flex: 1 }}><Input placeholder="Search by device, IMEI, customer…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
-        <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} options={["All", ...TRADEIN_STATUSES]} style={{ marginBottom: 0, width: 180 }} />
+        <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} options={[{ value: "All", label: "All Trade-Ins" }, { value: "pending", label: "Not Yet in Stock" }, { value: "stocked", label: "Added to Stock" }]} style={{ marginBottom: 0, width: 180 }} />
         <Btn variant="success" onClick={openAdd}>+ New Trade-In</Btn>
       </div>
 
@@ -1930,18 +1938,20 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
         {filtered.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 40 }}>No trade-ins yet. Click "+ New Trade-In" to record one.</div>}
         {filtered.map(t => {
           const cust = customers.find(c => c.id === t.customer);
-          const statusColor = t.status === "Added to Stock" ? "#10b981" : t.status === "Rejected" ? "#ef4444" : t.status === "Testing" ? "#f59e0b" : "#6b7280";
           return (
             <Card key={t.id} style={{ marginBottom: 10, cursor: "pointer" }} onClick={() => openEdit(t)}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>{t.deviceMake} {t.deviceModel}</div>
-                    <Badge color={statusColor}>{t.status}</Badge>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>{t.deviceModel}</div>
+                    {t.addedToStock ? <Badge color="#10b981">In Inventory</Badge> : <Badge color="#f59e0b">Not Yet Stocked</Badge>}
                     {t.grade && <Badge color={t.grade === "A" ? "#10b981" : t.grade === "B" ? "#3b82f6" : t.grade === "C" ? "#f59e0b" : "#ef4444"}>Grade {t.grade}</Badge>}
+                    {t.idSeen && <Badge color="#2563eb">✓ ID Seen</Badge>}
                   </div>
                   <div style={{ fontSize: 13, color: "#6b7280" }}>{[t.color, t.storage].filter(Boolean).join(" · ")}{t.imei ? ` · IMEI: ${t.imei}` : ""}</div>
                   <div style={{ fontSize: 13, color: "#374151", marginTop: 4 }}>👤 {cust?.name || "Unknown"}{cust?.phone ? ` · ${cust.phone}` : ""}</div>
+                  {(cust?.address || t.customerAddress) && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>📍 {cust?.address || t.customerAddress}</div>}
+                  {t.idSeen && t.idType && <div style={{ fontSize: 11, color: "#2563eb", marginTop: 2 }}>🪪 {t.idType} verified</div>}
                   {t.notes && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontStyle: "italic" }}>📝 {t.notes}</div>}
                 </div>
                 <div style={{ textAlign: "right" }}>
@@ -1953,7 +1963,7 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
               <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", paddingTop: 10, borderTop: "1px solid #e5e7eb" }}>
                 <button onClick={e => { e.stopPropagation(); openEdit(t); }}
                   style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #6b7280", background: "#6b728015", color: "#374151", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>✏️ Edit</button>
-                {!t.addedToStock && t.status !== "Rejected" && <button onClick={e => { e.stopPropagation(); openAddToStock(t); }}
+                {!t.addedToStock && <button onClick={e => { e.stopPropagation(); openAddToStock(t); }}
                   style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #10b981", background: "#10b98115", color: "#10b981", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>📦 Add to Stock</button>}
                 {t.addedToStock && <span style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, background: "#10b98115", color: "#10b981", fontWeight: 600 }}>✅ In Inventory</span>}
                 <button onClick={e => { e.stopPropagation(); del(t.id); }}
@@ -1966,46 +1976,78 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
 
       {/* New/Edit Trade-In Modal */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Trade-In" : "New Trade-In"}>
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Customer Phone Number *</label>
-          <input placeholder="e.g. 07778 123456" value={form.customerPhone}
-            onChange={e => {
-              const phone = e.target.value;
-              const found = customers.find(c => c.phone && c.phone.replace(/\s/g, "") === phone.replace(/\s/g, ""));
-              if (found) setForm(prev => ({ ...prev, customerPhone: phone, customer: found.id, customerName: found.name, customerEmail: found.email || "", _autoFilled: true }));
-              else setForm(prev => ({ ...prev, customerPhone: phone, customer: "", customerName: prev._autoFilled ? "" : prev.customerName, customerEmail: prev._autoFilled ? "" : prev.customerEmail, _autoFilled: false }));
-            }}
-            style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${form._autoFilled ? "#10b981" : "#d4d8e0"}`, background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
-          {form._autoFilled && <div style={{ fontSize: 11, color: "#10b981", marginTop: 4 }}>✅ Returning customer found — details auto-filled</div>}
+        {/* ─── SECTION 1: CUSTOMER INFO ─── */}
+        <div style={{ background: "#f8f9fc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>👤 Customer Information</div>
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Phone Number *</label>
+            <input placeholder="e.g. 07778 123456" value={form.customerPhone}
+              onChange={e => {
+                const phone = e.target.value;
+                const found = customers.find(c => c.phone && c.phone.replace(/\s/g, "") === phone.replace(/\s/g, ""));
+                if (found) setForm(prev => ({ ...prev, customerPhone: phone, customer: found.id, customerName: found.name, customerEmail: found.email || "", customerAddress: found.address || "", _autoFilled: true }));
+                else setForm(prev => ({ ...prev, customerPhone: phone, customer: "", customerName: prev._autoFilled ? "" : prev.customerName, customerEmail: prev._autoFilled ? "" : prev.customerEmail, customerAddress: prev._autoFilled ? "" : prev.customerAddress, _autoFilled: false }));
+              }}
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${form._autoFilled ? "#10b981" : "#d4d8e0"}`, background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+            {form._autoFilled && <div style={{ fontSize: 11, color: "#10b981", marginTop: 4 }}>✅ Returning customer — details auto-filled</div>}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
+            <Input label="Full Name *" placeholder="Customer's full name" value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value })} />
+            <Input label="Email (optional)" placeholder="name@example.com" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} />
+          </div>
+          <Input label="Address *" placeholder="e.g. 12 Example Street, Liverpool L1 4AB" value={form.customerAddress} onChange={e => setForm({ ...form, customerAddress: e.target.value })} />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
-          <Input label="Customer Name *" placeholder="Full name" value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value })} />
-          <Input label="Email (optional)" placeholder="name@example.com" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} />
+
+        {/* ─── SECTION 2: ID VERIFICATION ─── */}
+        <div style={{ background: form.idSeen ? "#10b98110" : "#fef3c7", border: `1px solid ${form.idSeen ? "#10b981" : "#f59e0b"}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>🪪 ID Verification</div>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 12px", background: "#ffffff", border: `2px solid ${form.idSeen ? "#10b981" : "#d4d8e0"}`, borderRadius: 10, fontSize: 14, color: "#111827", fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>
+            <input type="checkbox" checked={form.idSeen} onChange={e => setForm({ ...form, idSeen: e.target.checked, idType: e.target.checked ? form.idType : "" })}
+              style={{ width: 20, height: 20, cursor: "pointer" }} />
+            <span>{form.idSeen ? "✅ Customer ID has been verified" : "⚠️ Confirm ID has been seen"}</span>
+          </label>
+          {form.idSeen && (
+            <div style={{ marginTop: 10 }}>
+              <Select label="ID Type (optional)" value={form.idType} onChange={e => setForm({ ...form, idType: e.target.value })}
+                options={[{ value: "", label: "Select type…" }, { value: "Driving Licence", label: "Driving Licence" }, { value: "Passport", label: "Passport" }, { value: "National ID", label: "National ID Card" }, { value: "Other", label: "Other" }]} />
+            </div>
+          )}
+          {!form.idSeen && <div style={{ fontSize: 11, color: "#92400e", marginTop: 8 }}>ID verification is required before completing a trade-in.</div>}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
-          <Input label="Device Make *" placeholder="e.g. Apple, Samsung" value={form.deviceMake} onChange={e => setForm({ ...form, deviceMake: e.target.value })} />
-          <Input label="Device Model *" placeholder="e.g. iPhone 13, Galaxy S22" value={form.deviceModel} onChange={e => setForm({ ...form, deviceModel: e.target.value })} />
+
+        {/* ─── SECTION 3: DEVICE DETAILS ─── */}
+        <div style={{ background: "#f8f9fc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>📱 Device Details</div>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "0 12px" }}>
+            <Input label="Model *" placeholder="e.g. iPhone 13 Pro, Samsung Galaxy S22" value={form.deviceModel} onChange={e => setForm({ ...form, deviceModel: e.target.value })} />
+            <Select label="Grade" options={[{ value: "", label: "Select grade…" }, ...GRADES.map(g => ({ value: g, label: `Grade ${g}` }))]} value={form.grade} onChange={e => setForm({ ...form, grade: e.target.value })} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 12px" }}>
+            <Input label="IMEI / Serial" placeholder="353456789012345" value={form.imei} onChange={e => setForm({ ...form, imei: e.target.value })} />
+            <Input label="Colour" placeholder="e.g. Black" value={form.color} onChange={e => setForm({ ...form, color: e.target.value })} />
+            <Input label="Storage" placeholder="e.g. 128GB" value={form.storage} onChange={e => setForm({ ...form, storage: e.target.value })} />
+          </div>
+          <Input label="Condition Notes" placeholder="e.g. Small scratch on back, battery 89%, includes charger" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "0 10px" }}>
-          <Input label="IMEI/Serial (optional)" placeholder="353456..." value={form.imei} onChange={e => setForm({ ...form, imei: e.target.value })} />
-          <Input label="Colour" placeholder="Black" value={form.color} onChange={e => setForm({ ...form, color: e.target.value })} />
-          <Input label="Storage" placeholder="128GB" value={form.storage} onChange={e => setForm({ ...form, storage: e.target.value })} />
-          <Select label="Grade" options={[{ value: "", label: "—" }, ...GRADES.map(g => ({ value: g, label: `Grade ${g}` }))]} value={form.grade} onChange={e => setForm({ ...form, grade: e.target.value })} />
-        </div>
-        <Input label="Condition Notes (optional)" placeholder="e.g. Small scratch on back, battery 89%, includes charger" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
-          <Input label="Trade-in Value (£) *" type="number" min={0} value={form.value} onChange={e => setForm({ ...form, value: e.target.value })} />
-          <Select label="Status" options={TRADEIN_STATUSES} value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} />
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Payment to Customer</label>
-          <div style={{ display: "flex", gap: 6 }}>
-            {[["cash", "💵 Cash"], ["credit", "🎟 Store Credit"], ["bank", "🏦 Bank Transfer"]].map(([val, label]) => (
-              <button key={val} type="button" onClick={() => setForm({ ...form, payment: val })}
-                style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${form.payment === val ? "#f59e0b" : "#d4d8e0"}`, background: form.payment === val ? "#f59e0b15" : "transparent", color: form.payment === val ? "#f59e0b" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
-            ))}
+
+        {/* ─── SECTION 4: PAYMENT ─── */}
+        <div style={{ background: "#f8f9fc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>💰 Payment to Customer</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
+            <Input label="Trade-in Value (£) *" type="number" min={0} value={form.value} onChange={e => setForm({ ...form, value: e.target.value })} />
+            <Input label="Date" type="date" value={form.dateIn} onChange={e => setForm({ ...form, dateIn: e.target.value })} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Payment Method</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[["cash", "💵 Cash"], ["credit", "🎟 Store Credit"], ["bank", "🏦 Bank Transfer"]].map(([val, label]) => (
+                <button key={val} type="button" onClick={() => setForm({ ...form, payment: val })}
+                  style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: `1px solid ${form.payment === val ? "#f59e0b" : "#d4d8e0"}`, background: form.payment === val ? "#f59e0b15" : "#ffffff", color: form.payment === val ? "#f59e0b" : "#6b7280", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+              ))}
+            </div>
           </div>
         </div>
+
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
           <Btn variant="ghost" onClick={() => setShowModal(false)}>Cancel</Btn>
           <Btn onClick={save}>{editing ? "Save Changes" : "Create Trade-In"}</Btn>
@@ -2017,7 +2059,7 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
         {stockModal && (
           <div>
             <div style={{ background: "#f8f9fc", border: "1px solid #d4d8e0", borderRadius: 10, padding: 12, marginBottom: 14 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{stockModal.deviceMake} {stockModal.deviceModel}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{stockModal.deviceModel}</div>
               <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{[stockModal.color, stockModal.storage, stockModal.grade ? `Grade ${stockModal.grade}` : ""].filter(Boolean).join(" · ")}</div>
               <div style={{ fontSize: 12, color: "#f59e0b", marginTop: 4 }}>Paid customer: {currency(stockModal.value || 0)} (this becomes the unit cost)</div>
             </div>
@@ -2657,7 +2699,7 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
   });
 
   // Trade-in payouts (money going OUT to customers)
-  const periodTradeIns = tradeIns.filter(t => filterDate(t.dateIn) && t.status !== "Rejected");
+  const periodTradeIns = tradeIns.filter(t => filterDate(t.dateIn));
   let tradeInCashOut = 0, tradeInBankOut = 0, tradeInCreditOut = 0;
   periodTradeIns.forEach(t => {
     if (t.payment === "cash") tradeInCashOut += (t.value || 0);
