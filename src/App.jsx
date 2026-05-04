@@ -289,6 +289,99 @@ const downloadReceiptFile = (params) => {
   URL.revokeObjectURL(url);
 };
 
+// ─── Deposit Receipt Builder ───────────────────────────────────────
+const buildDepositReceiptHTML = (deposit, customer) => {
+  const items = deposit.items && deposit.items.length > 0 ? deposit.items : (deposit.productId ? [{ name: deposit.productName, imei: deposit.imei, color: deposit.color, storage: deposit.storage, grade: deposit.grade, price: deposit.agreedPrice }] : []);
+  const balance = deposit.agreedPrice - deposit.depositAmount;
+  const itemsHTML = items.map(it => `
+    <tr>
+      <td style="padding:6px 0;border-bottom:1px dashed #ccc">
+        <strong>${it.name}</strong>
+        ${it.imei ? `<br><span style="color:#b45309;font-size:11px;font-family:monospace">IMEI: ${it.imei}</span>` : ""}
+        ${(it.color || it.storage || it.grade) ? `<br><span style="color:#666;font-size:11px">${[it.color, it.storage, it.grade ? `Grade ${it.grade}` : ""].filter(Boolean).join(" · ")}</span>` : ""}
+      </td>
+      <td style="text-align:right;padding:6px 0;border-bottom:1px dashed #ccc;font-weight:700">£${(it.price || 0).toFixed(2)}</td>
+    </tr>`).join("");
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Deposit Receipt — ${SHOP.name}</title>
+<style>
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 380px; margin: 20px auto; padding: 16px; color: #222; }
+  h1 { text-align: center; margin: 0 0 4px; font-size: 28px; font-weight: 900; letter-spacing: 1px; }
+  .shop-info { text-align: center; font-size: 11px; color: #666; margin-bottom: 8px; }
+  .deposit-badge { display: inline-block; background: #f59e0b; color: #fff; padding: 5px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+  .header-meta { display: flex; justify-content: space-between; font-size: 12px; margin: 14px 0 8px; padding: 8px 0; border-top: 2px solid #333; border-bottom: 1px dashed #999; }
+  table { width: 100%; border-collapse: collapse; }
+  .totals tr td { padding: 4px 0; font-size: 13px; }
+  .totals tr.balance td { font-size: 16px; font-weight: 900; color: #b45309; padding-top: 8px; border-top: 2px solid #333; }
+  .deadline-box { padding: 10px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; text-align: center; font-size: 12px; color: #92400e; margin: 12px 0; }
+  .footer { text-align: center; font-size: 10px; color: #999; margin-top: 14px; }
+  @media print { body { margin: 0; max-width: none; } }
+</style></head><body>
+  <h1>${SHOP.name}</h1>
+  <div class="shop-info">${SHOP.address}<br>${SHOP.phone} · ${SHOP.email}</div>
+  <div style="text-align:center;margin:8px 0"><span class="deposit-badge">📅 DEPOSIT RECEIPT</span></div>
+  <div class="header-meta">
+    <div><strong>Receipt #:</strong> ${deposit.id.toUpperCase().substring(0, 8)}</div>
+    <div><strong>${new Date(deposit.dateTaken).toLocaleDateString("en-GB")}</strong></div>
+  </div>
+  <div style="font-size:12px;margin-bottom:10px">
+    <strong>Customer:</strong> ${customer?.name || "—"}<br>
+    <strong>Phone:</strong> ${customer?.phone || "—"}
+  </div>
+  <div style="font-size:11px;color:#666;margin:8px 0;text-transform:uppercase;letter-spacing:0.5px;font-weight:700">Items Reserved</div>
+  <table>${itemsHTML}</table>
+  <table class="totals" style="margin-top:10px">
+    <tr><td>Total Price:</td><td style="text-align:right;font-weight:700">£${deposit.agreedPrice.toFixed(2)}</td></tr>
+    <tr><td style="color:#10b981">Deposit Paid (${deposit.depositMethod === "mix" ? "Cash + Card" : deposit.depositMethod === "card" ? "Card" : "Cash"}):</td><td style="text-align:right;font-weight:700;color:#10b981">£${deposit.depositAmount.toFixed(2)}</td></tr>
+    <tr class="balance"><td>BALANCE DUE:</td><td style="text-align:right">£${balance.toFixed(2)}</td></tr>
+  </table>
+  <div class="deadline-box">
+    ⚠️ <strong>Pay balance by ${new Date(deposit.deadline).toLocaleDateString("en-GB")}</strong><br>
+    Items reserved until this date<br>
+    Deposit is non-refundable if not collected
+  </div>
+  <div class="footer">Thank you for your business · Please bring this receipt when collecting</div>
+  <script>window.onload = () => setTimeout(() => window.print(), 300);</script>
+</body></html>`;
+};
+
+const printDepositReceipt = (deposit, customer) => {
+  const html = buildDepositReceiptHTML(deposit, customer);
+  const win = window.open("", "_blank", "width=440,height=700");
+  if (!win) { alert("Please allow pop-ups to print the receipt."); return; }
+  win.document.write(html);
+  win.document.close();
+};
+
+const shareDepositReceipt = async (deposit, customer, method) => {
+  const html = buildDepositReceiptHTML(deposit, customer);
+  const fileName = `deposit-receipt-${deposit.id.toUpperCase().substring(0, 8)}.html`;
+  const file = new File([html], fileName, { type: "text/html" });
+
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ title: `Deposit Receipt — ${SHOP.name}`, files: [file] });
+      return;
+    } catch (e) { if (e.name === "AbortError") return; }
+  }
+
+  // Fallback: download + open WhatsApp/Email
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = fileName; a.click();
+  URL.revokeObjectURL(url);
+
+  const balance = deposit.agreedPrice - deposit.depositAmount;
+  const summary = `${SHOP.name} — Deposit Receipt #${deposit.id.toUpperCase().substring(0, 8)}\n\nTotal: £${deposit.agreedPrice.toFixed(2)}\nDeposit Paid: £${deposit.depositAmount.toFixed(2)}\nBalance Due: £${balance.toFixed(2)}\nDeadline: ${new Date(deposit.deadline).toLocaleDateString("en-GB")}\n\n📎 Receipt file downloaded — please attach it to this message.`;
+  if (method === "whatsapp") {
+    const cleanPhone = (customer?.phone || "").replace(/[^0-9]/g, "");
+    const text = encodeURIComponent(summary);
+    window.open(cleanPhone ? `https://wa.me/${cleanPhone}?text=${text}` : `https://wa.me/?text=${text}`, "_blank");
+  } else if (method === "email") {
+    window.location.href = `mailto:${customer?.email || ""}?subject=${encodeURIComponent(`Deposit Receipt — ${SHOP.name}`)}&body=${encodeURIComponent(summary)}`;
+  }
+};
+
 // Share receipt as file (uses Web Share API on mobile/iPad, falls back to download)
 const shareReceiptFile = async (params, method, contact) => {
   const html = buildReceiptHTML(params);
@@ -1412,6 +1505,8 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
   const [dateFilter, setDateFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState(null);
+  const [customFrom, setCustomFrom] = useState(today());
+  const [customTo, setCustomTo] = useState(today());
 
   const now = new Date();
   const filterDate = (d) => {
@@ -1422,6 +1517,12 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
       return date.getFullYear() === now.getFullYear()
           && date.getMonth() === now.getMonth()
           && date.getDate() === now.getDate();
+    }
+    if (dateFilter === "yesterday") {
+      const y = new Date(now); y.setDate(y.getDate() - 1);
+      return date.getFullYear() === y.getFullYear()
+          && date.getMonth() === y.getMonth()
+          && date.getDate() === y.getDate();
     }
     if (dateFilter === "week") {
       const startOfWeek = new Date(now);
@@ -1434,6 +1535,12 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
     if (dateFilter === "month") {
       return date.getFullYear() === now.getFullYear()
           && date.getMonth() === now.getMonth();
+    }
+    if (dateFilter === "custom") {
+      if (!customFrom || !customTo) return false;
+      const start = new Date(customFrom + "T00:00:00");
+      const end = new Date(customTo + "T23:59:59");
+      return date >= start && date <= end;
     }
     return true;
   };
@@ -1514,9 +1621,28 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
         <div style={{ flex: 1, minWidth: 200 }}>
           <Input placeholder="Search by receipt #, IMEI, customer, product…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 0 }} />
         </div>
-        <Select options={[{ value: "all", label: "All Time" }, { value: "today", label: "Today" }, { value: "week", label: "This Week" }, { value: "month", label: "This Month" }]} value={dateFilter} onChange={e => setDateFilter(e.target.value)} style={{ width: 140, marginBottom: 0 }} />
+        <Select options={[{ value: "all", label: "All Time" }, { value: "today", label: "Today" }, { value: "yesterday", label: "Yesterday" }, { value: "week", label: "This Week" }, { value: "month", label: "This Month" }, { value: "custom", label: "📅 Custom Range" }]} value={dateFilter} onChange={e => setDateFilter(e.target.value)} style={{ width: 160, marginBottom: 0 }} />
         <Select options={[{ value: "all", label: "All Sales" }, { value: "active", label: "Active Only" }, { value: "refunded", label: "Refunded Only" }]} value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: 150, marginBottom: 0 }} />
       </div>
+
+      {/* Custom date range picker for Sales History */}
+      {dateFilter === "custom" && (
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 12, padding: "12px 14px", background: "#eef2ff", border: "1px solid #2563eb40", borderRadius: 10 }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>From Date</label>
+            <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)}
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>To Date</label>
+            <input type="date" value={customTo} min={customFrom} max={today()} onChange={e => setCustomTo(e.target.value)}
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+          </div>
+          <div style={{ fontSize: 12, color: "#374151", padding: "10px 14px", background: "#ffffff", borderRadius: 10, border: "1px solid #d4d8e0", fontWeight: 600 }}>
+            📊 {filtered.length} sales found
+          </div>
+        </div>
+      )}
 
       <div style={{ flex: 1, overflowY: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
@@ -2227,13 +2353,17 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
 
   const blank = {
     customer: "", customerName: "", customerPhone: "", customerEmail: "", _autoFilled: false,
-    productId: "", unitId: "", productName: "", imei: "", color: "", storage: "", grade: "",
+    items: [], // [{ id, productId, unitId, name, imei, color, storage, grade, price, isMain }]
     agreedPrice: "", depositAmount: "", depositMethod: "cash", depositCashAmount: "",
     dateTaken: today(), deadline: "", notes: "",
     status: "Active",
-    finalPayment: null, // { method, cashAmount, cardAmount, date }
   };
   const [form, setForm] = useState(blank);
+  const [scanInput, setScanInput] = useState("");
+  const [scanMsg, setScanMsg] = useState("");
+  const [showProductPicker, setShowProductPicker] = useState(false);
+  const [productPickerSearch, setProductPickerSearch] = useState("");
+  const [showReceipt, setShowReceipt] = useState(null); // deposit to show receipt for
 
   // Auto-compute default deadline (30 days from today)
   const computeDeadline = (fromDate, days = 30) => {
@@ -2250,7 +2380,13 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
 
   const openEdit = (d) => {
     const cust = customers.find(c => c.id === d.customer);
-    setForm({ ...blank, ...d,
+    // Convert old single-product deposits to new items array format
+    const items = d.items && d.items.length > 0 ? d.items : (d.productId ? [{
+      id: uid(), productId: d.productId, unitId: d.unitId,
+      name: d.productName, imei: d.imei, color: d.color, storage: d.storage, grade: d.grade,
+      price: d.agreedPrice, isMain: true,
+    }] : []);
+    setForm({ ...blank, ...d, items,
       agreedPrice: String(d.agreedPrice || ""),
       depositAmount: String(d.depositAmount || ""),
       depositCashAmount: String(d.depositCashAmount || ""),
@@ -2261,8 +2397,11 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
     setShowModal(true);
   };
 
-  // All reserved unit IDs that are locked by an active deposit
-  const reservedUnitIds = new Set(deposits.filter(d => d.status === "Active" && d.unitId).map(d => d.unitId));
+  // All reserved unit IDs that are locked by an active deposit (across all items)
+  const reservedUnitIds = new Set(deposits.filter(d => d.status === "Active").flatMap(d => {
+    if (d.items && d.items.length > 0) return d.items.filter(i => i.unitId).map(i => i.unitId);
+    return d.unitId ? [d.unitId] : [];
+  }));
 
   // Available serialized products for deposit (show only if they have unreserved in_stock units)
   const availableProducts = products.filter(p => {
@@ -2276,15 +2415,82 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
     return (p.units || []).filter(u => u.status === "in_stock" && !reservedUnitIds.has(u.id));
   };
 
+  // ─── Item Cart Helpers ───────────────────────────────────────
+  const addItemToDeposit = (product, unit) => {
+    const newItem = {
+      id: uid(),
+      productId: product.id,
+      unitId: unit?.id || "",
+      name: product.name,
+      imei: unit?.imei || "",
+      color: unit?.color || "",
+      storage: unit?.storage || "",
+      grade: unit?.grade || "",
+      price: unit?.price ?? product.price ?? 0,
+      isMain: false,
+    };
+    setForm(prev => {
+      const newItems = [...prev.items, newItem];
+      const newAgreed = newItems.reduce((t, i) => t + (i.price || 0), 0);
+      return { ...prev, items: newItems, agreedPrice: String(newAgreed) };
+    });
+  };
+
+  const removeItemFromDeposit = (itemId) => {
+    setForm(prev => {
+      const newItems = prev.items.filter(i => i.id !== itemId);
+      const newAgreed = newItems.reduce((t, i) => t + (i.price || 0), 0);
+      return { ...prev, items: newItems, agreedPrice: String(newAgreed) };
+    });
+  };
+
+  const updateItemPrice = (itemId, newPrice) => {
+    setForm(prev => {
+      const newItems = prev.items.map(i => i.id === itemId ? { ...i, price: +newPrice || 0 } : i);
+      const newAgreed = newItems.reduce((t, i) => t + (i.price || 0), 0);
+      return { ...prev, items: newItems, agreedPrice: String(newAgreed) };
+    });
+  };
+
+  // ─── Barcode Scanner ─────────────────────────────────────────
+  const handleScan = (value) => {
+    const scanned = value.trim();
+    if (!scanned) return;
+    setScanInput("");
+    // Already in this deposit?
+    if (form.items.some(i => i.imei === scanned)) {
+      setScanMsg(`⚠️ ${scanned} — already added to this deposit`);
+      setTimeout(() => setScanMsg(""), 3000);
+      return;
+    }
+    // Find the unit
+    for (const p of products) {
+      if (!p.serialized) continue;
+      const unit = (p.units || []).find(u => u.imei === scanned);
+      if (unit) {
+        if (unit.status === "sold") { setScanMsg(`❌ ${scanned} — already sold`); }
+        else if (unit.status === "reserved") { setScanMsg(`⚠️ ${scanned} — already reserved on another deposit`); }
+        else if (reservedUnitIds.has(unit.id)) { setScanMsg(`⚠️ ${scanned} — already reserved`); }
+        else {
+          addItemToDeposit(p, unit);
+          setScanMsg(`✅ Added: ${p.name} — ${scanned}`);
+        }
+        setTimeout(() => setScanMsg(""), 3000);
+        return;
+      }
+    }
+    setScanMsg(`❌ IMEI not found: ${scanned}`);
+    setTimeout(() => setScanMsg(""), 3000);
+  };
+
   const save = () => {
-    if (!form.productId || !form.agreedPrice || !form.depositAmount) { alert("Product, Agreed Price and Deposit Amount are required"); return; }
-    const product = products.find(p => p.id === form.productId);
-    if (!product) { alert("Product not found"); return; }
-    if (product.serialized && !form.unitId) { alert("Please select a specific unit (IMEI)"); return; }
+    if (form.items.length === 0) { alert("Add at least one item to the deposit"); return; }
+    if (!form.depositAmount) { alert("Deposit Amount is required"); return; }
+
     const agreed = +form.agreedPrice || 0;
     const deposit = +form.depositAmount || 0;
     if (deposit <= 0) { alert("Deposit amount must be greater than zero"); return; }
-    if (deposit >= agreed) { alert("Deposit must be less than the agreed price. If paid in full, use POS instead."); return; }
+    if (deposit >= agreed) { alert("Deposit must be less than the total price. If paid in full, use POS instead."); return; }
 
     let customerId = form.customer;
     if (!customerId && form.customerName.trim()) {
@@ -2294,13 +2500,16 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
     }
     if (!customerId) { alert("Customer details are required"); return; }
 
-    const unit = product.serialized ? product.units.find(u => u.id === form.unitId) : null;
+    // Use the first serialized item as "main" device for display
+    const mainItem = form.items.find(i => i.imei) || form.items[0];
 
     const item = {
       customer: customerId,
-      productId: form.productId, unitId: form.unitId || "",
-      productName: product.name,
-      imei: unit?.imei || "", color: unit?.color || "", storage: unit?.storage || "", grade: unit?.grade || "",
+      items: form.items, // full items array
+      // Legacy fields for back-compat with old display code
+      productId: mainItem.productId, unitId: mainItem.unitId || "",
+      productName: form.items.length === 1 ? mainItem.name : `${mainItem.name} + ${form.items.length - 1} more`,
+      imei: mainItem.imei || "", color: mainItem.color || "", storage: mainItem.storage || "", grade: mainItem.grade || "",
       agreedPrice: agreed,
       depositAmount: deposit,
       depositMethod: form.depositMethod,
@@ -2314,45 +2523,57 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
 
     if (editing) {
       setDeposits(prev => prev.map(d => d.id === editing ? { ...d, ...item } : d));
-    } else {
-      // First payment = the initial deposit
-      const initialPayment = {
-        id: uid(),
-        amount: deposit,
-        method: form.depositMethod,
-        cashAmount: item.depositCashAmount,
-        cardAmount: item.depositCardAmount,
-        date: new Date().toISOString(),
-        note: "Initial deposit",
-      };
-      const newDep = { id: uid(), ...item, payments: [initialPayment] };
-      setDeposits(prev => [...prev, newDep]);
-      // Reserve the unit if serialized
-      if (product.serialized && form.unitId) {
-        setProducts(prev => prev.map(p => p.id === form.productId
-          ? { ...p, units: p.units.map(u => u.id === form.unitId ? { ...u, status: "reserved" } : u) }
-          : p));
-      } else if (!product.serialized) {
-        // Decrement stock for non-serialized (reserved quantity)
-        setProducts(prev => prev.map(p => p.id === form.productId ? { ...p, stock: Math.max(0, (p.stock || 0) - 1) } : p));
-      }
+      setShowModal(false);
+      return;
     }
+    // First payment = the initial deposit
+    const initialPayment = {
+      id: uid(),
+      amount: deposit,
+      method: form.depositMethod,
+      cashAmount: item.depositCashAmount,
+      cardAmount: item.depositCardAmount,
+      date: new Date().toISOString(),
+      note: "Initial deposit",
+    };
+    const newDep = { id: uid(), ...item, payments: [initialPayment] };
+    setDeposits(prev => [...prev, newDep]);
+
+    // Reserve all serialized units; decrement stock for non-serialized
+    setProducts(prev => prev.map(p => {
+      const productItems = form.items.filter(i => i.productId === p.id);
+      if (productItems.length === 0) return p;
+      if (p.serialized) {
+        const reserveIds = new Set(productItems.filter(i => i.unitId).map(i => i.unitId));
+        return { ...p, units: p.units.map(u => reserveIds.has(u.id) ? { ...u, status: "reserved" } : u) };
+      } else {
+        const qty = productItems.length;
+        return { ...p, stock: Math.max(0, (p.stock || 0) - qty) };
+      }
+    }));
+
     setShowModal(false);
+    // Auto-show the receipt after creating
+    setShowReceipt(newDep);
   };
 
   // Cancel deposit — deposit is kept (non-refundable), unit returned to stock
   const cancelDeposit = (deposit) => {
     if (deposit.status !== "Active" && deposit.status !== "Expired") return;
-    if (!confirm(`Cancel deposit for ${deposit.productName}?\n\nThe £${deposit.depositAmount.toFixed(2)} deposit will be KEPT (non-refundable) and the unit will return to stock.`)) return;
+    if (!confirm(`Cancel deposit for ${deposit.productName}?\n\nThe £${deposit.depositAmount.toFixed(2)} deposit will be KEPT (non-refundable) and the items will return to stock.`)) return;
     setDeposits(prev => prev.map(d => d.id === deposit.id ? { ...d, status: "Cancelled", cancelledDate: new Date().toISOString() } : d));
-    // Return unit to stock
-    if (deposit.unitId) {
-      setProducts(prev => prev.map(p => p.id === deposit.productId
-        ? { ...p, units: p.units.map(u => u.id === deposit.unitId ? { ...u, status: "in_stock" } : u) }
-        : p));
-    } else {
-      setProducts(prev => prev.map(p => p.id === deposit.productId ? { ...p, stock: (p.stock || 0) + 1 } : p));
-    }
+    // Return all items to stock
+    const items = deposit.items && deposit.items.length > 0 ? deposit.items : (deposit.productId ? [{ productId: deposit.productId, unitId: deposit.unitId }] : []);
+    setProducts(prev => prev.map(p => {
+      const productItems = items.filter(i => i.productId === p.id);
+      if (productItems.length === 0) return p;
+      if (p.serialized) {
+        const releaseIds = new Set(productItems.filter(i => i.unitId).map(i => i.unitId));
+        return { ...p, units: p.units.map(u => releaseIds.has(u.id) ? { ...u, status: "in_stock" } : u) };
+      } else {
+        return { ...p, stock: (p.stock || 0) + productItems.length };
+      }
+    }));
   };
 
   // Calculate total paid across all payments
@@ -2416,21 +2637,29 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
       const totalCash = updatedPayments.reduce((t, p) => t + (p.cashAmount || 0), 0);
       const totalCard = updatedPayments.reduce((t, p) => t + (p.cardAmount || 0), 0);
 
-      const product = products.find(p => p.id === deposit.productId);
-      if (!product) { alert("Product not found"); return; }
-      const unit = product.serialized ? product.units.find(u => u.id === deposit.unitId) : null;
-
-      // Create sale record covering full agreed price
-      const saleItem = {
-        productId: deposit.productId, name: deposit.productName, qty: 1,
+      // Get all items (handle old single-product deposits)
+      const items = deposit.items && deposit.items.length > 0 ? deposit.items : (deposit.productId ? [{
+        productId: deposit.productId, unitId: deposit.unitId,
+        name: deposit.productName, imei: deposit.imei, color: deposit.color, storage: deposit.storage, grade: deposit.grade,
         price: deposit.agreedPrice,
-        cost: unit?.cost ?? product.cost ?? 0,
-        imei: deposit.imei || "", unitId: deposit.unitId || "",
-        color: deposit.color || "", storage: deposit.storage || "", grade: deposit.grade || "",
-      };
+      }] : []);
+
+      // Build sale items array
+      const saleItems = items.map(it => {
+        const product = products.find(p => p.id === it.productId);
+        const unit = product?.serialized ? product.units.find(u => u.id === it.unitId) : null;
+        return {
+          productId: it.productId, name: it.name, qty: 1,
+          price: it.price || 0,
+          cost: unit?.cost ?? product?.cost ?? 0,
+          imei: it.imei || "", unitId: it.unitId || "",
+          color: it.color || "", storage: it.storage || "", grade: it.grade || "",
+        };
+      });
+
       const sale = {
         id: uid(),
-        items: [saleItem],
+        items: saleItems,
         subtotal: deposit.agreedPrice,
         discount: 0, discountAmt: 0,
         total: deposit.agreedPrice,
@@ -2443,12 +2672,18 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
       };
       setSales(prev => [...prev, sale]);
 
-      // Mark unit sold
-      if (deposit.unitId) {
-        setProducts(prev => prev.map(p => p.id === deposit.productId
-          ? { ...p, units: p.units.map(u => u.id === deposit.unitId ? { ...u, status: "sold" } : u) }
-          : p));
-      }
+      // Mark all serialized units sold + decrement non-serialized stock
+      setProducts(prev => prev.map(p => {
+        const productItems = items.filter(i => i.productId === p.id);
+        if (productItems.length === 0) return p;
+        if (p.serialized) {
+          const soldIds = new Set(productItems.filter(i => i.unitId).map(i => i.unitId));
+          return { ...p, units: p.units.map(u => soldIds.has(u.id) ? { ...u, status: "sold" } : u) };
+        } else {
+          // Non-serialized stock was already decremented when deposit was taken; nothing to do
+          return p;
+        }
+      }));
 
       setDeposits(prev => prev.map(d => d.id === deposit.id
         ? { ...d, payments: updatedPayments, status: "Completed", completedDate: new Date().toISOString(), saleId: sale.id }
@@ -2569,6 +2804,8 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
               <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", paddingTop: 10, borderTop: "1px solid #e5e7eb" }}>
                 <button onClick={e => { e.stopPropagation(); openEdit(d); }}
                   style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #6b7280", background: "#6b728015", color: "#374151", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>✏️ Edit</button>
+                <button onClick={e => { e.stopPropagation(); setShowReceipt(d); }}
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #f59e0b", background: "#f59e0b15", color: "#f59e0b", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>📄 Receipt</button>
                 {(d.status === "Active" || d.status === "Expired") && (
                   <button onClick={e => { e.stopPropagation(); openPay(d); }}
                     style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #10b981", background: "#10b98115", color: "#10b981", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>💰 Take Payment ({currency(balance)} left)</button>
@@ -2590,72 +2827,200 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
       </div>
 
       {/* New/Edit Deposit Modal */}
-      <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Deposit" : "New Deposit"}>
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Customer Phone Number *</label>
-          <input placeholder="e.g. 07778 123456" value={form.customerPhone}
-            onChange={e => {
-              const phone = e.target.value;
-              const found = customers.find(c => c.phone && c.phone.replace(/\s/g, "") === phone.replace(/\s/g, ""));
-              if (found) setForm(prev => ({ ...prev, customerPhone: phone, customer: found.id, customerName: found.name, customerEmail: found.email || "", _autoFilled: true }));
-              else setForm(prev => ({ ...prev, customerPhone: phone, customer: "", customerName: prev._autoFilled ? "" : prev.customerName, customerEmail: prev._autoFilled ? "" : prev.customerEmail, _autoFilled: false }));
-            }}
-            style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${form._autoFilled ? "#10b981" : "#d4d8e0"}`, background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
-          {form._autoFilled && <div style={{ fontSize: 11, color: "#10b981", marginTop: 4 }}>✅ Returning customer found — details auto-filled</div>}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
-          <Input label="Customer Name *" placeholder="Full name" value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value })} />
-          <Input label="Email (optional)" placeholder="name@example.com" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} />
-        </div>
-        <Select label="Product *"
-          options={[{ value: "", label: "Select product…" }, ...availableProducts.map(p => ({ value: p.id, label: `${p.name} (${p.sku}) — ${currency(p.price)}` }))]}
-          value={form.productId}
-          onChange={e => {
-            const prod = products.find(p => p.id === e.target.value);
-            setForm({ ...form, productId: e.target.value, unitId: "", agreedPrice: String(prod?.price || "") });
-          }} />
-        {form.productId && products.find(p => p.id === form.productId)?.serialized && (
-          <Select label="Select Specific Unit (IMEI) *"
-            options={[{ value: "", label: "Select unit…" }, ...availableUnitsFor(form.productId).map(u => ({ value: u.id, label: `${u.imei} · ${[u.color, u.storage, u.grade ? `Grade ${u.grade}` : ""].filter(Boolean).join(" · ") || "—"} · ${currency(u.price ?? products.find(p => p.id === form.productId)?.price ?? 0)}` }))]}
-            value={form.unitId}
-            onChange={e => {
-              const prod = products.find(p => p.id === form.productId);
-              const unit = prod?.units?.find(u => u.id === e.target.value);
-              setForm({ ...form, unitId: e.target.value, agreedPrice: String(unit?.price ?? prod?.price ?? "") });
-            }} />
-        )}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 10px" }}>
-          <Input label="Agreed Sale Price (£) *" type="number" min={0} value={form.agreedPrice} onChange={e => setForm({ ...form, agreedPrice: e.target.value })} />
-          <Input label="Deposit Amount (£) *" type="number" min={0} value={form.depositAmount} onChange={e => setForm({ ...form, depositAmount: e.target.value })} />
-          <div>
-            <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Balance Remaining</label>
-            <div style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#f8f9fc", color: "#f59e0b", fontSize: 14, fontWeight: 700, fontFamily: "'DM Sans', sans-serif" }}>{currency(Math.max(0, (+form.agreedPrice || 0) - (+form.depositAmount || 0)))}</div>
+      <Modal wide open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Deposit" : "New Deposit"}>
+        {/* ─── SECTION 1: CUSTOMER INFO ─── */}
+        <div style={{ background: "#f8f9fc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>👤 Customer Information</div>
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Phone Number *</label>
+            <input placeholder="e.g. 07778 123456" value={form.customerPhone}
+              onChange={e => {
+                const phone = e.target.value;
+                const found = customers.find(c => c.phone && c.phone.replace(/\s/g, "") === phone.replace(/\s/g, ""));
+                if (found) setForm(prev => ({ ...prev, customerPhone: phone, customer: found.id, customerName: found.name, customerEmail: found.email || "", _autoFilled: true }));
+                else setForm(prev => ({ ...prev, customerPhone: phone, customer: "", customerName: prev._autoFilled ? "" : prev.customerName, customerEmail: prev._autoFilled ? "" : prev.customerEmail, _autoFilled: false }));
+              }}
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${form._autoFilled ? "#10b981" : "#d4d8e0"}`, background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+            {form._autoFilled && <div style={{ fontSize: 11, color: "#10b981", marginTop: 4 }}>✅ Returning customer — details auto-filled</div>}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
+            <Input label="Full Name *" placeholder="Customer's full name" value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value })} />
+            <Input label="Email (optional)" placeholder="name@example.com" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} />
           </div>
         </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Deposit Payment Method</label>
-          <div style={{ display: "flex", gap: 6 }}>
-            {[["cash", "💵 Cash"], ["card", "💳 Card"], ["mix", "🔀 Split"]].map(([val, label]) => (
-              <button key={val} type="button" onClick={() => setForm({ ...form, depositMethod: val, depositCashAmount: val !== "mix" ? "" : form.depositCashAmount })}
-                style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${form.depositMethod === val ? "#2563eb" : "#d4d8e0"}`, background: form.depositMethod === val ? "#2563eb15" : "transparent", color: form.depositMethod === val ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
-            ))}
+
+        {/* ─── SECTION 2: ADD ITEMS ─── */}
+        <div style={{ background: "#eef2ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: "#2563eb", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>📦 Items to Reserve</div>
+
+          {/* Barcode scanner */}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
+            <div style={{ flex: 1, position: "relative" }}>
+              <input placeholder="📷 Scan IMEI / Serial barcode here…" value={scanInput} onChange={e => setScanInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") handleScan(scanInput); }}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "2px solid #2563eb", background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "monospace", boxSizing: "border-box", outline: "none" }} />
+            </div>
+            <Btn variant="ghost" onClick={() => { setShowProductPicker(true); setProductPickerSearch(""); }}>+ Add Other Item</Btn>
           </div>
-          {form.depositMethod === "mix" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
-              <Input label="Cash (£)" type="number" min={0} value={form.depositCashAmount} onChange={e => setForm({ ...form, depositCashAmount: e.target.value })} style={{ marginBottom: 0 }} />
-              <div><label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5 }}>Card (£)</label><div style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#f8f9fc", color: "#374151", fontSize: 14 }}>{currency(Math.max(0, (+form.depositAmount || 0) - (+form.depositCashAmount || 0)))}</div></div>
+          {scanMsg && <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, padding: "8px 12px", borderRadius: 8, background: scanMsg.startsWith("✅") ? "#10b98115" : scanMsg.startsWith("⚠") ? "#f59e0b15" : "#ef444415", color: scanMsg.startsWith("✅") ? "#10b981" : scanMsg.startsWith("⚠") ? "#f59e0b" : "#ef4444" }}>{scanMsg}</div>}
+
+          {/* Items list */}
+          {form.items.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 24, color: "#9ca3af", fontSize: 13, background: "#ffffff", borderRadius: 10, border: "1px dashed #d4d8e0" }}>
+              📷 Scan a phone IMEI or click "+ Add Other Item" to add cases, screen protectors, etc.
+            </div>
+          ) : (
+            <div style={{ background: "#ffffff", borderRadius: 10, border: "1px solid #d4d8e0" }}>
+              {form.items.map((item, idx) => (
+                <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderBottom: idx < form.items.length - 1 ? "1px solid #f3f4f6" : "none" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{item.name}</div>
+                    {item.imei && <div style={{ fontSize: 12, color: "#f59e0b", fontFamily: "monospace" }}>IMEI: {item.imei}</div>}
+                    {(item.color || item.storage || item.grade) && <div style={{ fontSize: 11, color: "#6b7280" }}>{[item.color, item.storage, item.grade ? `Grade ${item.grade}` : ""].filter(Boolean).join(" · ")}</div>}
+                  </div>
+                  <div style={{ width: 110 }}>
+                    <input type="number" min={0} value={item.price} onChange={e => updateItemPrice(item.id, e.target.value)}
+                      style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: "1px solid #d4d8e0", background: "#ffffff", color: "#10b981", fontSize: 14, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", textAlign: "right", boxSizing: "border-box", outline: "none" }} />
+                  </div>
+                  <button onClick={() => removeItemFromDeposit(item.id)} style={{ background: "transparent", border: "1px solid #ef4444", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>✕</button>
+                </div>
+              ))}
+              <div style={{ padding: "10px 12px", background: "#f8f9fc", borderTop: "2px solid #d4d8e0", display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 800 }}>
+                <span style={{ color: "#374151" }}>Total ({form.items.length} item{form.items.length === 1 ? "" : "s"})</span>
+                <span style={{ color: "#111827" }}>{currency(+form.agreedPrice || 0)}</span>
+              </div>
             </div>
           )}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
-          <Input label="Date Taken" type="date" value={form.dateTaken} onChange={e => setForm({ ...form, dateTaken: e.target.value, deadline: computeDeadline(e.target.value, 30) })} />
-          <Input label="Deadline (default 30 days)" type="date" value={form.deadline} onChange={e => setForm({ ...form, deadline: e.target.value })} />
+
+        {/* ─── SECTION 3: PAYMENT ─── */}
+        <div style={{ background: "#f8f9fc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>💰 Deposit Payment</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 12px" }}>
+            <div>
+              <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Total Price</label>
+              <div style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 14, fontWeight: 700, fontFamily: "'DM Sans', sans-serif" }}>{currency(+form.agreedPrice || 0)}</div>
+            </div>
+            <Input label="Deposit Amount (£) *" type="number" min={0} value={form.depositAmount} onChange={e => setForm({ ...form, depositAmount: e.target.value })} />
+            <div>
+              <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Balance Remaining</label>
+              <div style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#f59e0b", fontSize: 14, fontWeight: 700, fontFamily: "'DM Sans', sans-serif" }}>{currency(Math.max(0, (+form.agreedPrice || 0) - (+form.depositAmount || 0)))}</div>
+            </div>
+          </div>
+          <div style={{ marginBottom: 0 }}>
+            <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Payment Method</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[["cash", "💵 Cash"], ["card", "💳 Card"], ["mix", "🔀 Split"]].map(([val, label]) => (
+                <button key={val} type="button" onClick={() => setForm({ ...form, depositMethod: val, depositCashAmount: val !== "mix" ? "" : form.depositCashAmount })}
+                  style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: `1px solid ${form.depositMethod === val ? "#2563eb" : "#d4d8e0"}`, background: form.depositMethod === val ? "#2563eb15" : "#ffffff", color: form.depositMethod === val ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+              ))}
+            </div>
+            {form.depositMethod === "mix" && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+                <Input label="Cash (£)" type="number" min={0} value={form.depositCashAmount} onChange={e => setForm({ ...form, depositCashAmount: e.target.value })} style={{ marginBottom: 0 }} />
+                <div><label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5 }}>Card (£)</label><div style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#374151", fontSize: 14 }}>{currency(Math.max(0, (+form.depositAmount || 0) - (+form.depositCashAmount || 0)))}</div></div>
+              </div>
+            )}
+          </div>
         </div>
-        <Input label="Notes (optional)" placeholder="e.g. Will collect weekend, negotiated price from £480" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+
+        {/* ─── SECTION 4: DATES & NOTES ─── */}
+        <div style={{ background: "#f8f9fc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>📅 Dates & Notes</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
+            <Input label="Date Taken" type="date" value={form.dateTaken} onChange={e => setForm({ ...form, dateTaken: e.target.value, deadline: computeDeadline(e.target.value, 30) })} />
+            <Input label="Deadline (default 30 days)" type="date" value={form.deadline} onChange={e => setForm({ ...form, deadline: e.target.value })} />
+          </div>
+          <Input label="Notes (optional)" placeholder="e.g. Will collect weekend, negotiated price from £480" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+        </div>
+
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
           <Btn variant="ghost" onClick={() => setShowModal(false)}>Cancel</Btn>
           <Btn onClick={save}>{editing ? "Save Changes" : "Reserve & Take Deposit"}</Btn>
         </div>
+      </Modal>
+
+      {/* Product Picker Modal — for adding accessories */}
+      <Modal open={showProductPicker} onClose={() => setShowProductPicker(false)} title="Add Item to Deposit">
+        <Input placeholder="Search by name, SKU…" value={productPickerSearch} onChange={e => setProductPickerSearch(e.target.value)} />
+        <div style={{ maxHeight: "50vh", overflowY: "auto" }}>
+          {availableProducts.filter(p => !productPickerSearch || p.name.toLowerCase().includes(productPickerSearch.toLowerCase()) || p.sku.toLowerCase().includes(productPickerSearch.toLowerCase())).map(p => {
+            const inStock = p.serialized ? (p.units || []).filter(u => u.status === "in_stock" && !reservedUnitIds.has(u.id)).length : (p.stock || 0);
+            return (
+              <div key={p.id} style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{p.name}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>{p.category} · {p.sku} · {currency(p.price)} · {inStock} in stock</div>
+                </div>
+                {p.serialized ? (
+                  <button onClick={() => { setShowProductPicker(false); /* user will scan */ alert("This is a serialized product — scan its IMEI to add it."); }}
+                    style={{ background: "#f59e0b", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>Scan IMEI</button>
+                ) : (
+                  <button onClick={() => { addItemToDeposit(p, null); setShowProductPicker(false); }}
+                    style={{ background: "#10b981", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>+ Add</button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Modal>
+
+      {/* Deposit Receipt Modal */}
+      <Modal wide open={!!showReceipt} onClose={() => setShowReceipt(null)} title="Deposit Receipt">
+        {showReceipt && (() => {
+          const cust = customers.find(c => c.id === showReceipt.customer);
+          const items = showReceipt.items && showReceipt.items.length > 0 ? showReceipt.items : (showReceipt.productId ? [{ name: showReceipt.productName, imei: showReceipt.imei, color: showReceipt.color, storage: showReceipt.storage, grade: showReceipt.grade, price: showReceipt.agreedPrice }] : []);
+          const balance = showReceipt.agreedPrice - showReceipt.depositAmount;
+          return (
+            <div>
+              <div style={{ background: "#f8f9fc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 18, fontFamily: "'DM Sans', sans-serif" }}>
+                <div style={{ textAlign: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "2px solid #d4d8e0" }}>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: "#111827", letterSpacing: 1 }}>{SHOP.name}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>{SHOP.address}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>{SHOP.phone} · {SHOP.email}</div>
+                  <div style={{ marginTop: 10, padding: "6px 12px", background: "#f59e0b", color: "#fff", borderRadius: 8, display: "inline-block", fontSize: 13, fontWeight: 700 }}>📅 DEPOSIT RECEIPT</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12, fontSize: 12 }}>
+                  <div><strong>Receipt #:</strong> {showReceipt.id.toUpperCase().substring(0, 8)}</div>
+                  <div style={{ textAlign: "right" }}><strong>Date:</strong> {new Date(showReceipt.dateTaken).toLocaleDateString("en-GB")}</div>
+                  <div><strong>Customer:</strong> {cust?.name || "—"}</div>
+                  <div style={{ textAlign: "right" }}><strong>Phone:</strong> {cust?.phone || "—"}</div>
+                </div>
+                <div style={{ marginBottom: 12, padding: 12, background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Items Reserved</div>
+                  {items.map((it, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13, borderBottom: i < items.length - 1 ? "1px dashed #e5e7eb" : "none" }}>
+                      <div>
+                        <div style={{ fontWeight: 600, color: "#111827" }}>{it.name}</div>
+                        {it.imei && <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "monospace" }}>IMEI: {it.imei}</div>}
+                        {(it.color || it.storage || it.grade) && <div style={{ fontSize: 11, color: "#6b7280" }}>{[it.color, it.storage, it.grade ? `Grade ${it.grade}` : ""].filter(Boolean).join(" · ")}</div>}
+                      </div>
+                      <div style={{ fontWeight: 700, color: "#111827" }}>{currency(it.price)}</div>
+                    </div>
+                  ))}
+                </div>
+                <table style={{ width: "100%", fontSize: 13, marginBottom: 12 }}>
+                  <tbody>
+                    <tr><td style={{ padding: "3px 0", color: "#6b7280" }}>Total Price:</td><td style={{ textAlign: "right", padding: "3px 0", color: "#111827", fontWeight: 700 }}>{currency(showReceipt.agreedPrice)}</td></tr>
+                    <tr><td style={{ padding: "3px 0", color: "#10b981" }}>Deposit Paid Today:</td><td style={{ textAlign: "right", padding: "3px 0", color: "#10b981", fontWeight: 700 }}>{currency(showReceipt.depositAmount)}</td></tr>
+                    <tr style={{ borderTop: "2px solid #d4d8e0" }}><td style={{ padding: "6px 0", fontSize: 16, color: "#f59e0b", fontWeight: 800 }}>BALANCE DUE:</td><td style={{ textAlign: "right", padding: "6px 0", fontSize: 16, color: "#f59e0b", fontWeight: 800 }}>{currency(balance)}</td></tr>
+                  </tbody>
+                </table>
+                <div style={{ padding: 10, background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 8, fontSize: 12, color: "#92400e", textAlign: "center", marginBottom: 8 }}>
+                  ⚠️ <strong>Pay balance by {new Date(showReceipt.deadline).toLocaleDateString("en-GB")}</strong><br/>
+                  Items reserved until this date · Deposit is non-refundable if not collected
+                </div>
+                <div style={{ fontSize: 11, color: "#6b7280", textAlign: "center", marginTop: 10 }}>Thank you for your business — please bring this receipt when collecting your items.</div>
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14, flexWrap: "wrap" }}>
+                <Btn variant="ghost" onClick={() => setShowReceipt(null)}>Close</Btn>
+                <Btn variant="primary" onClick={() => printDepositReceipt(showReceipt, cust)}>🖨 Print / PDF</Btn>
+                <Btn variant="success" onClick={() => shareDepositReceipt(showReceipt, cust, "whatsapp")}>💬 WhatsApp</Btn>
+                <Btn variant="warning" onClick={() => shareDepositReceipt(showReceipt, cust, "email")}>✉ Email</Btn>
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* Take Payment Modal (supports partial top-ups AND final payment) */}
@@ -2760,6 +3125,8 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
 
 const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) => {
   const [range, setRange] = useState("all");
+  const [customFrom, setCustomFrom] = useState(today());
+  const [customTo, setCustomTo] = useState(today());
   const now = new Date();
   const filterDate = (d) => {
     if (range === "all") return true;
@@ -2771,6 +3138,13 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
           && date.getMonth() === now.getMonth()
           && date.getDate() === now.getDate();
     }
+    // "Yesterday"
+    if (range === "yesterday") {
+      const y = new Date(now); y.setDate(y.getDate() - 1);
+      return date.getFullYear() === y.getFullYear()
+          && date.getMonth() === y.getMonth()
+          && date.getDate() === y.getDate();
+    }
     // "This week" means Monday–Sunday of the current week
     if (range === "week") {
       const startOfWeek = new Date(now);
@@ -2780,10 +3154,27 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
       startOfWeek.setHours(0, 0, 0, 0);
       return date >= startOfWeek && date <= now;
     }
+    // "Last 7 days" — rolling window
+    if (range === "last7") {
+      const start = new Date(now); start.setDate(start.getDate() - 7); start.setHours(0, 0, 0, 0);
+      return date >= start && date <= now;
+    }
     // "This month" means the same calendar month of the current year
     if (range === "month") {
       return date.getFullYear() === now.getFullYear()
           && date.getMonth() === now.getMonth();
+    }
+    // "Last month" — previous calendar month
+    if (range === "lastmonth") {
+      const lm = new Date(now); lm.setDate(1); lm.setMonth(lm.getMonth() - 1);
+      return date.getFullYear() === lm.getFullYear() && date.getMonth() === lm.getMonth();
+    }
+    // "Custom" — user-picked from/to dates (inclusive)
+    if (range === "custom") {
+      if (!customFrom || !customTo) return false;
+      const start = new Date(customFrom + "T00:00:00");
+      const end = new Date(customTo + "T23:59:59");
+      return date >= start && date <= end;
     }
     return true;
   };
@@ -2886,10 +3277,48 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflowY: "auto" }}>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        {[["all", "All Time"], ["today", "Today"], ["week", "This Week"], ["month", "This Month"]].map(([v, l]) => (
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        {[["all", "All Time"], ["today", "Today"], ["yesterday", "Yesterday"], ["last7", "Last 7 Days"], ["week", "This Week"], ["month", "This Month"], ["lastmonth", "Last Month"], ["custom", "📅 Custom Range"]].map(([v, l]) => (
           <button key={v} onClick={() => setRange(v)} style={{ padding: "8px 16px", borderRadius: 10, border: `1px solid ${range === v ? "#2563eb" : "#d4d8e0"}`, background: range === v ? "#2563eb15" : "transparent", color: range === v ? "#3b82f6" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{l}</button>
         ))}
+      </div>
+
+      {/* Custom date range picker — only shown when Custom is selected */}
+      {range === "custom" && (
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 16, padding: "12px 14px", background: "#eef2ff", border: "1px solid #2563eb40", borderRadius: 10 }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>From Date</label>
+            <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)}
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>To Date</label>
+            <input type="date" value={customTo} min={customFrom} max={today()} onChange={e => setCustomTo(e.target.value)}
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", outline: "none" }} />
+          </div>
+          <div style={{ display: "flex", gap: 6, paddingBottom: 2 }}>
+            <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); const v = d.toISOString().slice(0, 10); setCustomFrom(v); setCustomTo(v); }}
+              style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #d4d8e0", background: "#ffffff", color: "#374151", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>Yesterday</button>
+            <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 7); setCustomFrom(d.toISOString().slice(0, 10)); setCustomTo(today()); }}
+              style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #d4d8e0", background: "#ffffff", color: "#374151", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>Last 7 days</button>
+            <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 30); setCustomFrom(d.toISOString().slice(0, 10)); setCustomTo(today()); }}
+              style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #d4d8e0", background: "#ffffff", color: "#374151", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>Last 30 days</button>
+          </div>
+        </div>
+      )}
+
+      {/* Range summary banner */}
+      <div style={{ marginBottom: 16, padding: "8px 14px", background: "#f8f9fc", borderRadius: 10, fontSize: 12, color: "#6b7280" }}>
+        📊 Showing data for: <strong style={{ color: "#111827" }}>
+          {range === "all" && "All Time"}
+          {range === "today" && `Today (${new Date().toLocaleDateString("en-GB")})`}
+          {range === "yesterday" && (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `Yesterday (${d.toLocaleDateString("en-GB")})`; })()}
+          {range === "last7" && "Last 7 days (rolling)"}
+          {range === "week" && "This week (Monday to today)"}
+          {range === "month" && `This month (${now.toLocaleDateString("en-GB", { month: "long", year: "numeric" })})`}
+          {range === "lastmonth" && (() => { const lm = new Date(); lm.setDate(1); lm.setMonth(lm.getMonth() - 1); return `Last month (${lm.toLocaleDateString("en-GB", { month: "long", year: "numeric" })})`; })()}
+          {range === "custom" && `${new Date(customFrom).toLocaleDateString("en-GB")} to ${new Date(customTo).toLocaleDateString("en-GB")}`}
+        </strong>
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
         <StatCard label="Total Revenue" value={currency(revenue)} color="#10b981" sub={`${filtered.length} transactions`} />
