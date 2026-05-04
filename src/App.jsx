@@ -885,6 +885,12 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
   const [deleteModal, setDeleteModal] = useState(null); // { type: "product"|"unit", target: obj, productName?: string }
   const [deleteReason, setDeleteReason] = useState("");
   const [showLogsModal, setShowLogsModal] = useState(false);
+  const [showStockAlertModal, setShowStockAlertModal] = useState(false);
+
+  // Low stock = 1-4 items, Out of stock = 0
+  const lowStockItems = products.filter(p => { const s = getStock(p); return s > 0 && s < 5; });
+  const outOfStockItems = products.filter(p => getStock(p) === 0);
+  const stockAlertCount = lowStockItems.length + outOfStockItems.length;
 
   const askDeleteProduct = (product) => {
     setDeleteModal({ type: "product", target: product });
@@ -952,12 +958,14 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
   };
 
   const addUnit = (productId) => {
-    if (!newImei.trim()) return;
+    if (!newImei.trim()) { alert("IMEI / Serial Number is required"); return; }
+    if (!newUnitCost.trim() || +newUnitCost <= 0) { alert("Cost is required and must be greater than 0"); return; }
+    if (!newUnitPrice.trim() || +newUnitPrice <= 0) { alert("Sell Price is required and must be greater than 0"); return; }
     const isDuplicate = products.some(p => (p.units || []).some(u => u.imei === newImei.trim()));
     if (isDuplicate) { alert("This IMEI/Serial already exists in inventory!"); return; }
     const product = products.find(p => p.id === productId);
-    const unitCost = newUnitCost.trim() ? +newUnitCost : (product?.cost || 0);
-    const unitPrice = newUnitPrice.trim() ? +newUnitPrice : (product?.price || 0);
+    const unitCost = +newUnitCost;
+    const unitPrice = +newUnitPrice;
     setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: [...(p.units || []), { id: uid(), imei: newImei.trim(), color: newColor.trim(), storage: newStorage.trim(), cost: unitCost, price: unitPrice, supplier: newSupplier.trim(), grade: newGrade, status: "in_stock" }] } : p));
     setNewImei("");
     setNewColor("");
@@ -989,6 +997,7 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
       <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "flex-end" }}>
         <div style={{ flex: 1 }}><Input placeholder="Search by name, SKU, or IMEI…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
         <Select options={["All", ...CATEGORIES]} value={catFilter} onChange={e => setCatFilter(e.target.value)} style={{ width: 160, marginBottom: 0 }} />
+        <Btn variant="ghost" onClick={() => setShowStockAlertModal(true)}>⚠️ Stock Alerts {stockAlertCount > 0 && <span style={{ background: outOfStockItems.length > 0 ? "#ef4444" : "#f59e0b", color: "#fff", borderRadius: 10, padding: "1px 7px", fontSize: 11, marginLeft: 4 }}>{stockAlertCount}</span>}</Btn>
         <Btn variant="ghost" onClick={() => setShowLogsModal(true)}>📋 Deletion Log {deletionLogs.length > 0 && <span style={{ background: "#ef4444", color: "#fff", borderRadius: 10, padding: "1px 7px", fontSize: 11, marginLeft: 4 }}>{deletionLogs.length}</span>}</Btn>
         <Btn variant="warning" onClick={() => { setImportPreview(null); setImportError(""); setImportModal(true); }}>📥 Import Excel</Btn>
         <Btn onClick={openAdd}>+ Add Product</Btn>
@@ -1008,7 +1017,17 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
               return (
                 <tr key={p.id} style={{ borderBottom: "1px solid #e5e7eb", color: "#374151" }}>
                   <td style={{ padding: "10px 8px", fontFamily: "monospace", color: "#3b82f6" }}>{p.sku}</td>
-                  <td style={{ padding: "10px 8px", fontWeight: 600, color: "#111827" }}>{p.name}</td>
+                  <td style={{ padding: "10px 8px", fontWeight: 600, color: "#111827" }}>
+                    {p.serialized ? (
+                      <button onClick={() => { setUnitsModal(p); setNewImei(""); setNewColor(""); setNewStorage(""); setNewUnitCost(""); setNewUnitPrice(""); setNewSupplier(""); setNewGrade(""); }}
+                        style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", padding: 0, fontSize: 14, fontWeight: 700, textAlign: "left", textDecoration: "underline", textDecorationColor: "transparent", fontFamily: "'DM Sans', sans-serif" }}
+                        onMouseEnter={e => e.currentTarget.style.textDecorationColor = "#2563eb"}
+                        onMouseLeave={e => e.currentTarget.style.textDecorationColor = "transparent"}
+                        title="Click to manage units">
+                        {p.name} 📱
+                      </button>
+                    ) : p.name}
+                  </td>
                   <td style={{ padding: "10px 8px" }}>
                     {p.serialized ? <Badge color="#f59e0b">Serialized</Badge> : <Badge color="#6b7280">Generic</Badge>}
                   </td>
@@ -1019,9 +1038,10 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
                     <Badge color={stock === 0 ? "#ef4444" : stock < 5 ? "#f59e0b" : "#10b981"}>{stock}</Badge>
                   </td>
                   <td style={{ padding: "10px 8px", textAlign: "center", whiteSpace: "nowrap" }}>
-                    {p.serialized && <button onClick={() => { setUnitsModal(p); setNewImei(""); setNewColor(""); setNewStorage(""); setNewUnitCost(""); setNewUnitPrice(""); setNewSupplier(""); setNewGrade(""); }} style={{ background: "none", border: "none", color: "#f59e0b", cursor: "pointer", marginRight: 6, fontSize: 13, fontWeight: 600 }}>Units</button>}
-                    <button onClick={() => openEdit(p)} style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", marginRight: 6, fontSize: 13 }}>Edit</button>
-                    <button onClick={() => askDeleteProduct(p)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 13 }}>Del</button>
+                    {p.serialized && <button onClick={() => { setUnitsModal(p); setNewImei(""); setNewColor(""); setNewStorage(""); setNewUnitCost(""); setNewUnitPrice(""); setNewSupplier(""); setNewGrade(""); }}
+                      style={{ background: "#f59e0b", border: "none", color: "#fff", cursor: "pointer", marginRight: 6, fontSize: 13, fontWeight: 700, padding: "8px 16px", borderRadius: 8, fontFamily: "'DM Sans', sans-serif" }}>📱 Units</button>}
+                    <button onClick={() => openEdit(p)} style={{ background: "#2563eb15", border: "1px solid #2563eb", color: "#2563eb", cursor: "pointer", marginRight: 6, fontSize: 12, padding: "6px 12px", borderRadius: 8, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>Edit</button>
+                    <button onClick={() => askDeleteProduct(p)} style={{ background: "transparent", border: "1px solid #ef4444", color: "#ef4444", cursor: "pointer", fontSize: 12, padding: "6px 12px", borderRadius: 8, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>Delete</button>
                   </td>
                 </tr>
               );
@@ -1058,22 +1078,39 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
       <Modal wide open={!!unitsModal} onClose={() => setUnitsModal(null)} title={currentUnitsProduct ? `Manage Units — ${currentUnitsProduct.name}` : ""}>
         {currentUnitsProduct && (
           <div>
-            <div style={{ display: "grid", gridTemplateColumns: "1.1fr 0.7fr 0.6fr 0.6fr 0.6fr 0.7fr 0.7fr auto", gap: 8, marginBottom: 6, alignItems: "flex-end" }}>
-              <Input label="IMEI / Serial" placeholder="e.g. 353456789012350" value={newImei} onChange={e => setNewImei(e.target.value)} style={{ marginBottom: 0 }}
-                onKeyDown={e => { if (e.key === "Enter") addUnit(currentUnitsProduct.id); }} />
-              <Input label="Colour" placeholder="e.g. Black" value={newColor} onChange={e => setNewColor(e.target.value)} style={{ marginBottom: 0 }} />
-              <Input label="Storage" placeholder="e.g. 256GB" value={newStorage} onChange={e => setNewStorage(e.target.value)} style={{ marginBottom: 0 }} />
-              <Select label="Grade" options={[{ value: "", label: "—" }, ...GRADES.map(g => ({ value: g, label: `Grade ${g}` }))]} value={newGrade} onChange={e => setNewGrade(e.target.value)} style={{ marginBottom: 0 }} />
-              <Input label="Cost (£)" type="number" min={0} placeholder={String(currentUnitsProduct.cost || 0)} value={newUnitCost} onChange={e => setNewUnitCost(e.target.value)} style={{ marginBottom: 0 }} />
-              <Input label="Sell Price (£)" type="number" min={0} placeholder={String(currentUnitsProduct.price || 0)} value={newUnitPrice} onChange={e => setNewUnitPrice(e.target.value)} style={{ marginBottom: 0 }} />
-              <Input label="Supplier" placeholder="e.g. WeBuy" value={newSupplier} onChange={e => setNewSupplier(e.target.value)} style={{ marginBottom: 0 }} />
-              <Btn onClick={() => addUnit(currentUnitsProduct.id)} variant="success" style={{ marginBottom: 14 }}>+ Add</Btn>
-            </div>
-            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 10, marginTop: -4 }}>💡 Leave Cost or Sell Price blank to use the product defaults (Cost: {currency(currentUnitsProduct.cost || 0)}, Price: {currency(currentUnitsProduct.price || 0)})</div>
-            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>
+            {/* Stock summary banner */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 14, padding: "10px 14px", background: "#f8f9fc", border: "1px solid #e5e7eb", borderRadius: 10, alignItems: "center" }}>
               <Badge color="#10b981">{currentUnitsProduct.units.filter(u => u.status === "in_stock").length} in stock</Badge>
-              <span style={{ marginLeft: 8 }}><Badge color="#6b7280">{currentUnitsProduct.units.filter(u => u.status === "sold").length} sold</Badge></span>
-              <span style={{ marginLeft: 8, color: "#9ca3af" }}>{currentUnitsProduct.units.length} total units</span>
+              <Badge color="#f59e0b">{currentUnitsProduct.units.filter(u => u.status === "reserved").length} reserved</Badge>
+              <Badge color="#6b7280">{currentUnitsProduct.units.filter(u => u.status === "sold").length} sold</Badge>
+              <span style={{ marginLeft: "auto", fontSize: 12, color: "#6b7280" }}>{currentUnitsProduct.units.length} total units</span>
+            </div>
+
+            {/* Add new unit form — sectioned for clarity */}
+            <div style={{ background: "#eef2ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: "#2563eb", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>➕ Add New Unit</div>
+
+              {/* Row 1: IMEI (full width) */}
+              <Input label="IMEI / Serial Number *" placeholder="e.g. 353456789012350" value={newImei} onChange={e => setNewImei(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { document.getElementById("unit-color-input")?.focus(); } }} />
+
+              {/* Row 2: Colour, Storage, Grade — 3 equal columns */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 12px" }}>
+                <Input label="Colour" placeholder="e.g. Black" value={newColor} onChange={e => setNewColor(e.target.value)} id="unit-color-input" />
+                <Input label="Storage" placeholder="e.g. 256GB" value={newStorage} onChange={e => setNewStorage(e.target.value)} />
+                <Select label="Grade" options={[{ value: "", label: "Select grade…" }, ...GRADES.map(g => ({ value: g, label: `Grade ${g}` }))]} value={newGrade} onChange={e => setNewGrade(e.target.value)} />
+              </div>
+
+              {/* Row 3: Cost, Price, Supplier — 3 equal columns */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 12px" }}>
+                <Input label="Cost (£) *" type="number" min={0} placeholder={`Default: ${currency(currentUnitsProduct.cost || 0)}`} value={newUnitCost} onChange={e => setNewUnitCost(e.target.value)} />
+                <Input label="Sell Price (£) *" type="number" min={0} placeholder={`Default: ${currency(currentUnitsProduct.price || 0)}`} value={newUnitPrice} onChange={e => setNewUnitPrice(e.target.value)} />
+                <Input label="Supplier" placeholder="e.g. WeBuy" value={newSupplier} onChange={e => setNewSupplier(e.target.value)} />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+                <Btn onClick={() => addUnit(currentUnitsProduct.id)} variant="success" style={{ padding: "10px 24px", fontSize: 14 }}>➕ Add Unit to Stock</Btn>
+              </div>
             </div>
             <div style={{ maxHeight: 360, overflowY: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -1282,6 +1319,89 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
             ))}
           </div>
         )}
+      </Modal>
+
+      {/* Stock Alerts Modal */}
+      <Modal wide open={showStockAlertModal} onClose={() => setShowStockAlertModal(false)} title="⚠️ Stock Alerts — Items to Reorder">
+        <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+          <StatCard label="Out of Stock" value={outOfStockItems.length} color="#ef4444" sub="Need urgent reorder" />
+          <StatCard label="Low Stock" value={lowStockItems.length} color="#f59e0b" sub="Less than 5 left" />
+          <StatCard label="Total Affected" value={stockAlertCount} color="#2563eb" />
+        </div>
+
+        {stockAlertCount === 0 ? (
+          <div style={{ textAlign: "center", padding: 40, color: "#10b981" }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>All products are well stocked!</div>
+            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>No items are out of stock or running low.</div>
+          </div>
+        ) : (
+          <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
+            {outOfStockItems.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 13, color: "#ef4444", fontWeight: 700, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>🔴 Out of Stock — {outOfStockItems.length} item{outOfStockItems.length === 1 ? "" : "s"}</div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: "#fef2f2", border: "1px solid #ef4444", borderRadius: 10, overflow: "hidden" }}>
+                  <thead>
+                    <tr style={{ background: "#fee2e2", color: "#991b1b", textAlign: "left" }}>
+                      <th style={{ padding: "10px 8px" }}>Product</th>
+                      <th style={{ padding: "10px 8px" }}>SKU</th>
+                      <th style={{ padding: "10px 8px" }}>Category</th>
+                      <th style={{ padding: "10px 8px", textAlign: "right" }}>Cost</th>
+                      <th style={{ padding: "10px 8px", textAlign: "right" }}>Sell Price</th>
+                      <th style={{ padding: "10px 8px", textAlign: "center" }}>Stock</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {outOfStockItems.map(p => (
+                      <tr key={p.id} style={{ borderBottom: "1px solid #fecaca" }}>
+                        <td style={{ padding: "10px 8px", color: "#111827", fontWeight: 600 }}>{p.name}</td>
+                        <td style={{ padding: "10px 8px", color: "#6b7280", fontFamily: "monospace", fontSize: 12 }}>{p.sku}</td>
+                        <td style={{ padding: "10px 8px" }}><Badge>{p.category}</Badge></td>
+                        <td style={{ padding: "10px 8px", textAlign: "right", color: "#374151" }}>{currency(p.cost)}</td>
+                        <td style={{ padding: "10px 8px", textAlign: "right", color: "#111827", fontWeight: 700 }}>{currency(p.price)}</td>
+                        <td style={{ padding: "10px 8px", textAlign: "center" }}><Badge color="#ef4444">0</Badge></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {lowStockItems.length > 0 && (
+              <div>
+                <div style={{ fontSize: 13, color: "#f59e0b", fontWeight: 700, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>🟡 Low Stock — {lowStockItems.length} item{lowStockItems.length === 1 ? "" : "s"} (less than 5 left)</div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: "#fffbeb", border: "1px solid #f59e0b", borderRadius: 10, overflow: "hidden" }}>
+                  <thead>
+                    <tr style={{ background: "#fef3c7", color: "#92400e", textAlign: "left" }}>
+                      <th style={{ padding: "10px 8px" }}>Product</th>
+                      <th style={{ padding: "10px 8px" }}>SKU</th>
+                      <th style={{ padding: "10px 8px" }}>Category</th>
+                      <th style={{ padding: "10px 8px", textAlign: "right" }}>Cost</th>
+                      <th style={{ padding: "10px 8px", textAlign: "right" }}>Sell Price</th>
+                      <th style={{ padding: "10px 8px", textAlign: "center" }}>Stock</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lowStockItems.sort((a, b) => getStock(a) - getStock(b)).map(p => (
+                      <tr key={p.id} style={{ borderBottom: "1px solid #fde68a" }}>
+                        <td style={{ padding: "10px 8px", color: "#111827", fontWeight: 600 }}>{p.name}</td>
+                        <td style={{ padding: "10px 8px", color: "#6b7280", fontFamily: "monospace", fontSize: 12 }}>{p.sku}</td>
+                        <td style={{ padding: "10px 8px" }}><Badge>{p.category}</Badge></td>
+                        <td style={{ padding: "10px 8px", textAlign: "right", color: "#374151" }}>{currency(p.cost)}</td>
+                        <td style={{ padding: "10px 8px", textAlign: "right", color: "#111827", fontWeight: 700 }}>{currency(p.price)}</td>
+                        <td style={{ padding: "10px 8px", textAlign: "center" }}><Badge color="#f59e0b">{getStock(p)}</Badge></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+          <Btn variant="ghost" onClick={() => setShowStockAlertModal(false)}>Close</Btn>
+        </div>
       </Modal>
     </div>
   );
