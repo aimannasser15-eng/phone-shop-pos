@@ -212,6 +212,7 @@ const buildReceiptHTML = ({ type, data, customer }) => {
   <table class="items-table"><tbody>${itemsHTML}</tbody></table>
   <table class="totals-table"><tbody>${totalsHTML}</tbody></table>
   ${data.payment ? `<div style="font-size:12px;color:#333;margin-top:8px;padding-top:8px;border-top:1px dashed #666"><strong>Payment:</strong> ${data.payment === "mix" ? `Cash £${(data.cashPaid || 0).toFixed(2)} + Card £${(data.cardPaid || 0).toFixed(2)}` : data.payment === "card" ? "Card" : "Cash"}</div>` : ""}
+  ${data.staff ? `<div style="font-size:11px;color:#666;margin-top:4px"><strong>Served by:</strong> ${data.staff}</div>` : ""}
   <div class="thanks">${isSale ? "Thank you for your purchase!" : "Thank you for choosing us for your repair."}</div>
   <div class="terms">
     <h3>${termsTitle}</h3>
@@ -538,7 +539,7 @@ const StatCard = ({ label, value, sub, color = "#2563eb" }) => (
 
 // ─── POS / Checkout ─────────────────────────────────────────────────
 
-const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
+const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff }) => {
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState("");
   const [selCustomer, setSelCustomer] = useState("");
@@ -660,6 +661,8 @@ const POSTab = ({ products, setProducts, sales, setSales, customers }) => {
       cashPaid: payMethod === "mix" ? (+cashAmount || 0) : (payMethod === "cash" ? total : 0),
       cardPaid: payMethod === "mix" ? (total - (+cashAmount || 0)) : (payMethod === "card" ? total : 0),
       customer: selCustomer || null,
+      staff: activeStaff?.name || "",
+      staffId: activeStaff?.id || "",
       date: new Date().toISOString()
     };
     setSales(prev => [...prev, sale]);
@@ -1002,7 +1005,8 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
       id: uid(),
       type: deleteModal.type,
       date: new Date().toISOString(),
-      user: user?.email || "Unknown",
+      user: activeStaff?.name || user?.email || "Unknown",
+      staffId: activeStaff?.id || "",
       reason: deleteReason.trim(),
     };
 
@@ -1500,7 +1504,7 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
   );
 };
 
-const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) => {
+const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers, activeStaff }) => {
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1596,7 +1600,7 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
       }));
     }
 
-    const refund = { id: uid(), amount, method: refundMethod, reason: refundReason.trim(), returnedUnits: refundItems, date: new Date().toISOString() };
+    const refund = { id: uid(), amount, method: refundMethod, reason: refundReason.trim(), returnedUnits: refundItems, date: new Date().toISOString(), staff: activeStaff?.name || "", staffId: activeStaff?.id || "" };
     const newRefunds = [...(refundModal.refunds || []), refund];
     const totalRefundedNow = alreadyRefunded + amount;
     const fullyRefunded = totalRefundedNow >= refundModal.total - 0.01;
@@ -1651,6 +1655,7 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
               <th style={{ padding: "10px 8px" }}>Receipt #</th>
               <th style={{ padding: "10px 8px" }}>Date</th>
               <th style={{ padding: "10px 8px" }}>Customer</th>
+              <th style={{ padding: "10px 8px" }}>Sold By</th>
               <th style={{ padding: "10px 8px" }}>Items</th>
               <th style={{ padding: "10px 8px", textAlign: "right" }}>Total</th>
               <th style={{ padding: "10px 8px" }}>Status</th>
@@ -1666,13 +1671,14 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers }) 
                   <td style={{ padding: "10px 8px", fontFamily: "monospace", color: "#3b82f6", fontWeight: 700 }}>#{s.id.toUpperCase()}</td>
                   <td style={{ padding: "10px 8px" }}>{new Date(s.date).toLocaleString("en-GB")}</td>
                   <td style={{ padding: "10px 8px" }}>{cust ? cust.name : <span style={{ color: "#9ca3af" }}>Walk-in</span>}</td>
+                  <td style={{ padding: "10px 8px", color: "#2563eb", fontWeight: 600 }}>{s.staff || <span style={{ color: "#9ca3af", fontWeight: 400 }}>—</span>}</td>
                   <td style={{ padding: "10px 8px", color: "#6b7280" }}>{s.items.reduce((t, i) => t + i.qty, 0)} item(s)</td>
                   <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, color: s.refunded ? "#ef4444" : "#10b981" }}>{currency(s.total)}</td>
                   <td style={{ padding: "10px 8px" }}>{s.refunded ? <Badge color="#ef4444">Refunded</Badge> : (s.refunds || []).length > 0 ? <Badge color="#f59e0b">Partial Refund</Badge> : <Badge color="#10b981">Completed</Badge>}</td>
                 </tr>
               );
             })}
-            {filtered.length === 0 && <tr><td colSpan={6} style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>No sales found</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={7} style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>No sales found</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1863,7 +1869,7 @@ const CustomersTab = ({ customers, setCustomers, sales }) => {
 
 // ─── Repairs ────────────────────────────────────────────────────────
 
-const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
+const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, activeStaff }) => {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [statusFilter, setStatusFilter] = useState("All");
@@ -1895,7 +1901,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
       customerId = newCust.id;
     }
     const repairCost = +form.cost || 0;
-    const item = { customer: customerId, device: form.device, imei: form.imei, issue: form.issue, status: form.status, cost: repairCost, payment: form.payment || "cash", cashPaid: form.payment === "mix" ? (+form.cashPaid || 0) : (form.payment === "cash" ? repairCost : 0), cardPaid: form.payment === "mix" ? (repairCost - (+form.cashPaid || 0)) : (form.payment === "card" ? repairCost : 0), notes: form.notes };
+    const item = { customer: customerId, device: form.device, imei: form.imei, issue: form.issue, status: form.status, cost: repairCost, payment: form.payment || "cash", cashPaid: form.payment === "mix" ? (+form.cashPaid || 0) : (form.payment === "cash" ? repairCost : 0), cardPaid: form.payment === "mix" ? (repairCost - (+form.cashPaid || 0)) : (form.payment === "card" ? repairCost : 0), notes: form.notes, staff: editing ? form.staff : (activeStaff?.name || ""), staffId: editing ? form.staffId : (activeStaff?.id || "") };
     if (editing) setRepairs(prev => prev.map(r => r.id === editing ? { ...r, ...item } : r));
     else setRepairs(prev => [...prev, { ...item, id: uid(), dateIn: today() }]);
     setShowModal(false);
@@ -1939,6 +1945,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
                   </div>
                   {r.imei && <div style={{ fontSize: 12, color: "#f59e0b", fontFamily: "monospace", marginBottom: 3 }}>IMEI/SN: {r.imei}</div>}
                   <div style={{ fontSize: 13, color: "#6b7280" }}>Fault: {r.issue}</div>
+                  {r.staff && <div style={{ fontSize: 11, color: "#2563eb", marginTop: 2 }}>👤 Booked by {r.staff}</div>}
                   {cust && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>Customer: {cust.name} · {cust.phone}</div>}
                   {r.notes && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>📝 {r.notes}</div>}
                 </div>
@@ -2030,7 +2037,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers }) => {
 // TRADE-INS TAB
 // ═══════════════════════════════════════════════════════════════════
 
-const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products, setProducts }) => {
+const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products, setProducts, activeStaff }) => {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [statusFilter, setStatusFilter] = useState("All");
@@ -2078,6 +2085,8 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
       status: editing ? form.status : "Received", // keep existing status if editing, default Received for new
       addedToStock: form.addedToStock || false,
       linkedUnitId: form.linkedUnitId || "", linkedProductId: form.linkedProductId || "",
+      staff: editing ? (form.staff || "") : (activeStaff?.name || ""),
+      staffId: editing ? (form.staffId || "") : (activeStaff?.id || ""),
     };
     if (editing) {
       setTradeIns(prev => prev.map(t => t.id === editing ? { ...t, ...item } : t));
@@ -2198,6 +2207,7 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
                   <div style={{ fontSize: 13, color: "#374151", marginTop: 4 }}>👤 {cust?.name || "Unknown"}{cust?.phone ? ` · ${cust.phone}` : ""}</div>
                   {(cust?.address || t.customerAddress) && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>📍 {cust?.address || t.customerAddress}</div>}
                   {t.idSeen && t.idType && <div style={{ fontSize: 11, color: "#2563eb", marginTop: 2 }}>🪪 {t.idType} verified</div>}
+                  {t.staff && <div style={{ fontSize: 11, color: "#2563eb", marginTop: 2 }}>👤 Accepted by {t.staff}</div>}
                   {t.notes && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontStyle: "italic" }}>📝 {t.notes}</div>}
                 </div>
                 <div style={{ textAlign: "right" }}>
@@ -2341,7 +2351,7 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
 // DEPOSITS TAB
 // ═══════════════════════════════════════════════════════════════════
 
-const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products, setProducts, sales, setSales }) => {
+const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products, setProducts, sales, setSales, activeStaff }) => {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [statusFilter, setStatusFilter] = useState("Active");
@@ -2519,6 +2529,8 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
       deadline: form.deadline || computeDeadline(today(), 30),
       notes: form.notes,
       status: form.status || "Active",
+      staff: editing ? (form.staff || "") : (activeStaff?.name || ""),
+      staffId: editing ? (form.staffId || "") : (activeStaff?.id || ""),
     };
 
     if (editing) {
@@ -2535,6 +2547,8 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
       cardAmount: item.depositCardAmount,
       date: new Date().toISOString(),
       note: "Initial deposit",
+      staff: activeStaff?.name || "",
+      staffId: activeStaff?.id || "",
     };
     const newDep = { id: uid(), ...item, payments: [initialPayment] };
     setDeposits(prev => [...prev, newDep]);
@@ -2612,6 +2626,8 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
       cashAmount: cash, cardAmount: card,
       date: new Date().toISOString(),
       note: "",
+      staff: activeStaff?.name || "",
+      staffId: activeStaff?.id || "",
     };
 
     const newTotal = paidSoFar + amount;
@@ -2793,6 +2809,7 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
                   )}
                   {isExpired && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, fontWeight: 700 }}>⚠ Expired on {new Date(d.deadline).toLocaleDateString("en-GB")}</div>}
                   {d.notes && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontStyle: "italic" }}>📝 {d.notes}</div>}
+                  {d.staff && <div style={{ fontSize: 11, color: "#2563eb", marginTop: 4 }}>👤 Taken by {d.staff}</div>}
                 </div>
                 <div style={{ textAlign: "right", minWidth: 160 }}>
                   <div style={{ fontSize: 11, color: "#6b7280" }}>Agreed Price</div>
@@ -3541,6 +3558,139 @@ export default function PhoneShopPOS() {
   return <MainApp user={user} />;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// STAFF PICKER — shown after Firebase login, before reaching the app
+// ═══════════════════════════════════════════════════════════════════
+
+const StaffPicker = ({ staff, setStaff, onSelect }) => {
+  const [pinModal, setPinModal] = useState(null); // staff member entering PIN
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [showAddStaff, setShowAddStaff] = useState(false);
+  const [newStaffName, setNewStaffName] = useState("");
+  const [newStaffPin, setNewStaffPin] = useState("");
+  const [newStaffRole, setNewStaffRole] = useState("staff");
+
+  const handleStaffClick = (member) => {
+    if (!member.pin) { onSelect({ id: member.id, name: member.name, role: member.role }); return; }
+    setPinModal(member);
+    setPin("");
+    setPinError("");
+  };
+
+  const submitPin = () => {
+    if (pin === pinModal.pin) {
+      onSelect({ id: pinModal.id, name: pinModal.name, role: pinModal.role });
+    } else {
+      setPinError("Wrong PIN — try again");
+      setPin("");
+    }
+  };
+
+  const addStaff = () => {
+    if (!newStaffName.trim()) { alert("Enter a name"); return; }
+    if (newStaffPin && !/^\d{4}$/.test(newStaffPin)) { alert("PIN must be exactly 4 digits"); return; }
+    setStaff(prev => [...prev, { id: uid(), name: newStaffName.trim(), pin: newStaffPin, role: newStaffRole, joined: today() }]);
+    setNewStaffName(""); setNewStaffPin(""); setNewStaffRole("staff");
+    setShowAddStaff(false);
+  };
+
+  const removeStaff = (id) => {
+    if (!confirm("Remove this staff member? They will not be able to sign in anymore.")) return;
+    setStaff(prev => prev.filter(s => s.id !== id));
+  };
+
+  return (
+    <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #f0f4ff 0%, #fff 100%)", fontFamily: "'DM Sans', sans-serif", padding: 20 }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+      <div style={{ background: "#ffffff", border: "1px solid #e5e7eb", borderRadius: 20, padding: 36, width: "100%", maxWidth: 720, boxShadow: "0 24px 64px rgba(0,0,0,0.08)" }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ fontSize: 42, marginBottom: 8 }}>📱</div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#111827" }}>{SHOP.name}</h1>
+          <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>Who's working?</div>
+        </div>
+
+        {staff.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 40, color: "#6b7280" }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>👥</div>
+            <div style={{ fontSize: 14, marginBottom: 16 }}>No staff members yet. Add the first one to get started.</div>
+            <Btn variant="primary" onClick={() => setShowAddStaff(true)}>+ Add Staff Member</Btn>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 18 }}>
+              {staff.map(member => (
+                <div key={member.id} style={{ position: "relative" }}>
+                  <button onClick={() => handleStaffClick(member)}
+                    style={{ width: "100%", padding: "20px 12px", borderRadius: 14, border: "2px solid #e5e7eb", background: "#f8f9fc", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s" }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "#2563eb"; e.currentTarget.style.background = "#eef2ff"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.background = "#f8f9fc"; }}>
+                    <div style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg, #2563eb, #3b82f6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, margin: "0 auto 8px" }}>
+                      {member.name.split(" ").map(w => w[0]).join("").substring(0, 2).toUpperCase()}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 2 }}>{member.name}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>{member.role === "owner" ? "👑 Owner" : "👤 Staff"}</div>
+                    {member.pin && <div style={{ fontSize: 10, color: "#2563eb", marginTop: 4 }}>🔒 PIN required</div>}
+                  </button>
+                  <button onClick={() => removeStaff(member.id)}
+                    style={{ position: "absolute", top: 4, right: 4, background: "transparent", border: "none", color: "#9ca3af", cursor: "pointer", fontSize: 14, padding: 4, borderRadius: 4 }}
+                    title="Remove staff member">✕</button>
+                </div>
+              ))}
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <Btn variant="ghost" onClick={() => setShowAddStaff(true)}>+ Add Staff Member</Btn>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* PIN Entry Modal */}
+      <Modal open={!!pinModal} onClose={() => { setPinModal(null); setPin(""); setPinError(""); }} title={pinModal ? `Enter PIN for ${pinModal.name}` : ""}>
+        {pinModal && (
+          <div>
+            <div style={{ textAlign: "center", marginBottom: 18 }}>
+              <div style={{ width: 60, height: 60, borderRadius: "50%", background: "linear-gradient(135deg, #2563eb, #3b82f6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 700, margin: "0 auto 10px" }}>
+                {pinModal.name.split(" ").map(w => w[0]).join("").substring(0, 2).toUpperCase()}
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>{pinModal.name}</div>
+            </div>
+            <input type="password" inputMode="numeric" maxLength={4} placeholder="• • • •" value={pin} autoFocus
+              onChange={e => { setPin(e.target.value.replace(/\D/g, "")); setPinError(""); }}
+              onKeyDown={e => { if (e.key === "Enter" && pin.length === 4) submitPin(); }}
+              style={{ width: "100%", padding: "16px 14px", borderRadius: 10, border: `2px solid ${pinError ? "#ef4444" : "#d4d8e0"}`, background: "#ffffff", color: "#111827", fontSize: 28, textAlign: "center", letterSpacing: 8, fontFamily: "monospace", boxSizing: "border-box", outline: "none" }} />
+            {pinError && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 8, textAlign: "center" }}>⚠ {pinError}</div>}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14 }}>
+              <Btn variant="ghost" onClick={() => { setPinModal(null); setPin(""); setPinError(""); }}>Cancel</Btn>
+              <Btn variant="primary" onClick={submitPin} disabled={pin.length !== 4}>Sign In</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Add Staff Modal */}
+      <Modal open={showAddStaff} onClose={() => { setShowAddStaff(false); setNewStaffName(""); setNewStaffPin(""); setNewStaffRole("staff"); }} title="Add Staff Member">
+        <Input label="Full Name *" placeholder="e.g. John Smith" value={newStaffName} onChange={e => setNewStaffName(e.target.value)} />
+        <div>
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Role</label>
+          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+            {[["staff", "👤 Staff"], ["owner", "👑 Owner"]].map(([val, label]) => (
+              <button key={val} type="button" onClick={() => setNewStaffRole(val)}
+                style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: `1px solid ${newStaffRole === val ? "#2563eb" : "#d4d8e0"}`, background: newStaffRole === val ? "#2563eb15" : "#ffffff", color: newStaffRole === val ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+            ))}
+          </div>
+        </div>
+        <Input label="4-Digit PIN (optional)" type="text" inputMode="numeric" maxLength={4} placeholder="e.g. 1234" value={newStaffPin} onChange={e => setNewStaffPin(e.target.value.replace(/\D/g, ""))} />
+        <div style={{ fontSize: 11, color: "#6b7280", marginTop: -8, marginBottom: 12 }}>💡 Adds a quick check before they can sign in. Leave blank for no PIN.</div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => { setShowAddStaff(false); setNewStaffName(""); setNewStaffPin(""); setNewStaffRole("staff"); }}>Cancel</Btn>
+          <Btn variant="success" onClick={addStaff}>Add Staff Member</Btn>
+        </div>
+      </Modal>
+    </div>
+  );
+};
+
 function MainApp({ user }) {
   const [tab, setTab] = useState("pos");
   const [products, setProducts] = useState([]);
@@ -3550,12 +3700,14 @@ function MainApp({ user }) {
   const [tradeIns, setTradeIns] = useState([]);
   const [deposits, setDeposits] = useState([]);
   const [deletionLogs, setDeletionLogs] = useState([]);
+  const [staff, setStaff] = useState([]);
+  const [activeStaff, setActiveStaff] = useState(null); // { id, name } currently signed in
   const [loaded, setLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     (async () => {
-      const [p, s, c, r, t, d, dl] = await Promise.all([
+      const [p, s, c, r, t, d, dl, st] = await Promise.all([
         loadData("pos-products-v3", SAMPLE_PRODUCTS),
         loadData("pos-sales-v3", []),
         loadData("pos-customers-v3", []),
@@ -3563,8 +3715,9 @@ function MainApp({ user }) {
         loadData("pos-tradeins-v3", []),
         loadData("pos-deposits-v1", []),
         loadData("pos-deletion-logs-v1", []),
+        loadData("pos-staff-v1", []),
       ]);
-      setProducts(p); setSales(s); setCustomers(c); setRepairs(r); setTradeIns(t); setDeposits(d); setDeletionLogs(dl);
+      setProducts(p); setSales(s); setCustomers(c); setRepairs(r); setTradeIns(t); setDeposits(d); setDeletionLogs(dl); setStaff(st);
       setLoaded(true);
     })();
   }, []);
@@ -3576,10 +3729,12 @@ function MainApp({ user }) {
   useEffect(() => { if (loaded) saveData("pos-tradeins-v3", tradeIns); }, [tradeIns, loaded]);
   useEffect(() => { if (loaded) saveData("pos-deposits-v1", deposits); }, [deposits, loaded]);
   useEffect(() => { if (loaded) saveData("pos-deletion-logs-v1", deletionLogs); }, [deletionLogs, loaded]);
+  useEffect(() => { if (loaded) saveData("pos-staff-v1", staff); }, [staff, loaded]);
 
   const resetAll = async () => {
     if (!confirm("Reset ALL data? This cannot be undone.")) return;
-    setProducts(SAMPLE_PRODUCTS); setSales([]); setCustomers([]); setRepairs([]); setTradeIns([]); setDeposits([]); setDeletionLogs([]);
+    setProducts(SAMPLE_PRODUCTS); setSales([]); setCustomers([]); setRepairs([]); setTradeIns([]); setDeposits([]); setDeletionLogs([]); setStaff([]);
+    setActiveStaff(null);
   };
 
   if (!loaded) return (
@@ -3587,6 +3742,9 @@ function MainApp({ user }) {
       <div style={{ textAlign: "center" }}><div style={{ fontSize: 48, marginBottom: 12 }}>📱</div>Loading Phone Shop POS…</div>
     </div>
   );
+
+  // No staff selected → show staff picker
+  if (!activeStaff) return <StaffPicker staff={staff} setStaff={setStaff} onSelect={setActiveStaff} />;
 
   return (
     <div style={{ height: "100vh", display: "flex", fontFamily: "'DM Sans', sans-serif", background: "#f5f7fa", color: "#374151", overflow: "hidden" }}>
@@ -3605,8 +3763,19 @@ function MainApp({ user }) {
           ))}
         </nav>
         {sidebarOpen && <div style={{ padding: "12px 14px", borderTop: "1px solid #e5e7eb" }}>
-          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6, wordBreak: "break-all" }}>👤 {user.email}</div>
-          <button onClick={() => signOut(auth)} style={{ fontSize: 12, color: "#ef4444", background: "none", border: "1px solid #ef444466", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6 }}>🚪 Sign Out</button>
+          {/* Active staff member */}
+          <div style={{ background: "#eef2ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 10, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg, #2563eb, #3b82f6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
+              {activeStaff.name.split(" ").map(w => w[0]).join("").substring(0, 2).toUpperCase()}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeStaff.name}</div>
+              <div style={{ fontSize: 10, color: "#6b7280" }}>{activeStaff.role === "owner" ? "👑 Owner" : "👤 Staff"}</div>
+            </div>
+          </div>
+          <button onClick={() => setActiveStaff(null)} style={{ fontSize: 12, color: "#2563eb", background: "#2563eb15", border: "1px solid #2563eb", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6, fontWeight: 600 }}>🔄 Switch User</button>
+          <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 8, marginBottom: 4, wordBreak: "break-all" }}>Account: {user.email}</div>
+          <button onClick={() => signOut(auth)} style={{ fontSize: 11, color: "#ef4444", background: "none", border: "1px solid #ef444466", borderRadius: 8, padding: "3px 8px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6 }}>🚪 Sign Out</button>
           <br />
           <button onClick={resetAll} style={{ fontSize: 11, color: "#9ca3af", background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>🔄 Reset All Data</button>
         </div>}
@@ -3617,13 +3786,13 @@ function MainApp({ user }) {
           <div style={{ fontSize: 13, color: "#9ca3af" }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
         </header>
         <main style={{ flex: 1, padding: 20, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          {tab === "pos" && <POSTab products={products} setProducts={setProducts} sales={sales} setSales={setSales} customers={customers} />}
-          {tab === "inventory" && <InventoryTab products={products} setProducts={setProducts} deletionLogs={deletionLogs} setDeletionLogs={setDeletionLogs} user={user} />}
-          {tab === "sales" && <SalesHistoryTab sales={sales} setSales={setSales} products={products} setProducts={setProducts} customers={customers} />}
+          {tab === "pos" && <POSTab products={products} setProducts={setProducts} sales={sales} setSales={setSales} customers={customers} activeStaff={activeStaff} />}
+          {tab === "inventory" && <InventoryTab products={products} setProducts={setProducts} deletionLogs={deletionLogs} setDeletionLogs={setDeletionLogs} user={user} activeStaff={activeStaff} />}
+          {tab === "sales" && <SalesHistoryTab sales={sales} setSales={setSales} products={products} setProducts={setProducts} customers={customers} activeStaff={activeStaff} />}
           {tab === "customers" && <CustomersTab customers={customers} setCustomers={setCustomers} sales={sales} />}
-          {tab === "repairs" && <RepairsTab repairs={repairs} setRepairs={setRepairs} customers={customers} setCustomers={setCustomers} />}
-          {tab === "tradeins" && <TradeInsTab tradeIns={tradeIns} setTradeIns={setTradeIns} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} />}
-          {tab === "deposits" && <DepositsTab deposits={deposits} setDeposits={setDeposits} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} sales={sales} setSales={setSales} />}
+          {tab === "repairs" && <RepairsTab repairs={repairs} setRepairs={setRepairs} customers={customers} setCustomers={setCustomers} activeStaff={activeStaff} />}
+          {tab === "tradeins" && <TradeInsTab tradeIns={tradeIns} setTradeIns={setTradeIns} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} activeStaff={activeStaff} />}
+          {tab === "deposits" && <DepositsTab deposits={deposits} setDeposits={setDeposits} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} sales={sales} setSales={setSales} activeStaff={activeStaff} />}
           {tab === "reports" && <ReportsTab sales={sales} products={products} repairs={repairs} tradeIns={tradeIns} deposits={deposits} />}
         </main>
       </div>
