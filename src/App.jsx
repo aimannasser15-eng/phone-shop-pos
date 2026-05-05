@@ -888,7 +888,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
 
 // ─── Inventory ──────────────────────────────────────────────────────
 
-const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, user }) => {
+const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, user, activeStaff }) => {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
