@@ -3570,6 +3570,13 @@ const StaffPicker = ({ staff, setStaff, onSelect }) => {
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffPin, setNewStaffPin] = useState("");
   const [newStaffRole, setNewStaffRole] = useState("staff");
+  const [deleteModal, setDeleteModal] = useState(null); // staff being deleted
+  const [ownerPin, setOwnerPin] = useState("");
+  const [ownerPinError, setOwnerPinError] = useState("");
+
+  // Owners are the only ones who can delete staff
+  const owners = staff.filter(s => s.role === "owner");
+  const ownersWithPin = owners.filter(s => s.pin);
 
   const handleStaffClick = (member) => {
     if (!member.pin) { onSelect({ id: member.id, name: member.name, role: member.role }); return; }
@@ -3595,9 +3602,42 @@ const StaffPicker = ({ staff, setStaff, onSelect }) => {
     setShowAddStaff(false);
   };
 
-  const removeStaff = (id) => {
-    if (!confirm("Remove this staff member? They will not be able to sign in anymore.")) return;
-    setStaff(prev => prev.filter(s => s.id !== id));
+  const askDeleteStaff = (member) => {
+    // First staff member can always be deleted (otherwise you'd be locked out)
+    if (staff.length === 1) {
+      if (confirm(`Remove ${member.name}? They will not be able to sign in anymore.`)) {
+        setStaff(prev => prev.filter(s => s.id !== member.id));
+      }
+      return;
+    }
+    // Must have at least one owner
+    if (member.role === "owner" && owners.length === 1) {
+      alert("Cannot delete the only Owner. Promote another staff member to Owner first.");
+      return;
+    }
+    // Must have at least one owner with a PIN to authorise the deletion
+    if (ownersWithPin.length === 0) {
+      alert("⚠️ No Owner has a PIN set. Please set a PIN for at least one Owner before you can delete staff members.\n\nTo set a PIN: delete the owner and re-add them with a PIN.");
+      return;
+    }
+    setDeleteModal(member);
+    setOwnerPin("");
+    setOwnerPinError("");
+  };
+
+  const confirmDeleteStaff = () => {
+    if (!deleteModal) return;
+    // Check if entered PIN matches any Owner's PIN
+    const matchedOwner = ownersWithPin.find(o => o.pin === ownerPin);
+    if (!matchedOwner) {
+      setOwnerPinError("Wrong Owner PIN — try again");
+      setOwnerPin("");
+      return;
+    }
+    setStaff(prev => prev.filter(s => s.id !== deleteModal.id));
+    setDeleteModal(null);
+    setOwnerPin("");
+    setOwnerPinError("");
   };
 
   return (
@@ -3632,7 +3672,7 @@ const StaffPicker = ({ staff, setStaff, onSelect }) => {
                     <div style={{ fontSize: 11, color: "#6b7280" }}>{member.role === "owner" ? "👑 Owner" : "👤 Staff"}</div>
                     {member.pin && <div style={{ fontSize: 10, color: "#2563eb", marginTop: 4 }}>🔒 PIN required</div>}
                   </button>
-                  <button onClick={() => removeStaff(member.id)}
+                  <button onClick={() => askDeleteStaff(member)}
                     style={{ position: "absolute", top: 4, right: 4, background: "transparent", border: "none", color: "#9ca3af", cursor: "pointer", fontSize: 14, padding: 4, borderRadius: 4 }}
                     title="Remove staff member">✕</button>
                 </div>
@@ -3686,6 +3726,38 @@ const StaffPicker = ({ staff, setStaff, onSelect }) => {
           <Btn variant="ghost" onClick={() => { setShowAddStaff(false); setNewStaffName(""); setNewStaffPin(""); setNewStaffRole("staff"); }}>Cancel</Btn>
           <Btn variant="success" onClick={addStaff}>Add Staff Member</Btn>
         </div>
+      </Modal>
+
+      {/* Owner PIN required to delete a staff member */}
+      <Modal open={!!deleteModal} onClose={() => { setDeleteModal(null); setOwnerPin(""); setOwnerPinError(""); }} title="Owner Authorisation Required">
+        {deleteModal && (
+          <div>
+            <div style={{ background: "#fef2f2", border: "1px solid #ef4444", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#991b1b", marginBottom: 6 }}>⚠️ You are about to delete:</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg, #ef4444, #dc2626)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700 }}>
+                  {deleteModal.name.split(" ").map(w => w[0]).join("").substring(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>{deleteModal.name}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>{deleteModal.role === "owner" ? "👑 Owner" : "👤 Staff"}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: "#991b1b", marginTop: 8 }}>This person will no longer be able to sign in.</div>
+            </div>
+            <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#111827", marginBottom: 6 }}>Enter Owner PIN to authorise *</label>
+            <input type="password" inputMode="numeric" maxLength={4} placeholder="• • • •" value={ownerPin} autoFocus
+              onChange={e => { setOwnerPin(e.target.value.replace(/\D/g, "")); setOwnerPinError(""); }}
+              onKeyDown={e => { if (e.key === "Enter" && ownerPin.length === 4) confirmDeleteStaff(); }}
+              style={{ width: "100%", padding: "16px 14px", borderRadius: 10, border: `2px solid ${ownerPinError ? "#ef4444" : "#d4d8e0"}`, background: "#ffffff", color: "#111827", fontSize: 28, textAlign: "center", letterSpacing: 8, fontFamily: "monospace", boxSizing: "border-box", outline: "none" }} />
+            {ownerPinError && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 8, textAlign: "center" }}>⚠ {ownerPinError}</div>}
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 8 }}>💡 Only an Owner's PIN will work — staff cannot delete profiles.</div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14 }}>
+              <Btn variant="ghost" onClick={() => { setDeleteModal(null); setOwnerPin(""); setOwnerPinError(""); }}>Cancel</Btn>
+              <Btn variant="danger" onClick={confirmDeleteStaff} disabled={ownerPin.length !== 4}>🗑 Confirm Delete</Btn>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
