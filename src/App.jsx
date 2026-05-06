@@ -1160,15 +1160,17 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
             const cat = e.target.value;
             setForm({ ...form, category: cat, serialized: SERIALIZED_CATEGORIES.includes(cat) });
           }} />
-          <Input label={form.serialized || SERIALIZED_CATEGORIES.includes(form.category) ? "Default Unit Cost (£)" : "Cost Price (£)"} type="number" min={0} value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} />
-          <Input label={form.serialized || SERIALIZED_CATEGORIES.includes(form.category) ? "Default Sell Price (£)" : "Selling Price (£)"} type="number" min={0} value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
           {!(SERIALIZED_CATEGORIES.includes(form.category) || form.serialized) && (
-            <Input label="Quantity" type="number" min={0} value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} />
+            <>
+              <Input label="Cost Price (£)" type="number" min={0} value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} />
+              <Input label="Selling Price (£)" type="number" min={0} value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
+              <Input label="Quantity" type="number" min={0} value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} />
+            </>
           )}
         </div>
         {(SERIALIZED_CATEGORIES.includes(form.category) || form.serialized) && (
-          <div style={{ background: "#ffffff", borderRadius: 10, padding: 14, marginTop: 4, border: "1px solid #d4d8e0" }}>
-            <div style={{ fontSize: 12, color: "#f59e0b", marginBottom: 0 }}>⚠️ Serialized product — stock is managed per unit. {editing ? 'Use the "Units" button in the table to add/remove individual IMEIs.' : 'After creating, use the "Units" button to add each device with its IMEI.'}</div>
+          <div style={{ background: "#fef3c7", borderRadius: 10, padding: 14, marginTop: 4, border: "1px solid #f59e0b" }}>
+            <div style={{ fontSize: 12, color: "#92400e" }}>⚠️ <strong>Serialized product</strong> — each unit has its own cost, price, IMEI, colour, storage and grade. {editing ? 'Use the "Units" button in the table to add/edit individual units.' : 'After creating, click the product name or "Units" button to add each device.'}</div>
           </div>
         )}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14 }}>
@@ -1205,8 +1207,8 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
 
               {/* Row 3: Cost, Price, Supplier — 3 equal columns */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 12px" }}>
-                <Input label="Cost (£) *" type="number" min={0} placeholder={`Default: ${currency(currentUnitsProduct.cost || 0)}`} value={newUnitCost} onChange={e => setNewUnitCost(e.target.value)} />
-                <Input label="Sell Price (£) *" type="number" min={0} placeholder={`Default: ${currency(currentUnitsProduct.price || 0)}`} value={newUnitPrice} onChange={e => setNewUnitPrice(e.target.value)} />
+                <Input label="Cost (£) *" type="number" min={0} placeholder="e.g. 90" value={newUnitCost} onChange={e => setNewUnitCost(e.target.value)} />
+                <Input label="Sell Price (£) *" type="number" min={0} placeholder="e.g. 220" value={newUnitPrice} onChange={e => setNewUnitPrice(e.target.value)} />
                 <Input label="Supplier" placeholder="e.g. WeBuy" value={newSupplier} onChange={e => setNewSupplier(e.target.value)} />
               </div>
 
