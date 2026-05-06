@@ -976,8 +976,16 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
   };
   const save = () => {
     const isSerialized = SERIALIZED_CATEGORIES.includes(form.category) || form.serialized;
-    const item = { ...form, price: +form.price, cost: +form.cost, stock: isSerialized ? 0 : (+form.stock || 0), serialized: isSerialized, units: form.units || [] };
-    if (!item.name || !item.price) return;
+    const item = {
+      ...form,
+      price: isSerialized ? 0 : (+form.price || 0),
+      cost: isSerialized ? 0 : (+form.cost || 0),
+      stock: isSerialized ? 0 : (+form.stock || 0),
+      serialized: isSerialized,
+      units: form.units || [],
+    };
+    if (!item.name || !item.sku) { alert("Name and SKU are required"); return; }
+    if (!isSerialized && !item.price) { alert("Selling Price is required"); return; }
     if (editing) { setProducts(prev => prev.map(p => p.id === editing ? { ...p, ...item } : p)); }
     else { setProducts(prev => [...prev, { ...item, id: uid() }]); }
     setShowModal(false);
@@ -1134,8 +1142,24 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
                     {p.serialized ? <Badge color="#f59e0b">Serialized</Badge> : <Badge color="#6b7280">Generic</Badge>}
                   </td>
                   <td style={{ padding: "10px 8px" }}><Badge>{p.category}</Badge></td>
-                  <td style={{ padding: "10px 8px", textAlign: "right" }}>{currency(p.cost)}</td>
-                  <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700 }}>{currency(p.price)}</td>
+                  <td style={{ padding: "10px 8px", textAlign: "right" }}>
+                    {p.serialized ? (() => {
+                      const inStock = (p.units || []).filter(u => u.status === "in_stock");
+                      if (inStock.length === 0) return <span style={{ color: "#9ca3af", fontSize: 12 }}>—</span>;
+                      const costs = inStock.map(u => u.cost ?? 0);
+                      const minC = Math.min(...costs); const maxC = Math.max(...costs);
+                      return <span style={{ color: "#374151" }}>{minC === maxC ? currency(minC) : `${currency(minC)}–${currency(maxC)}`}</span>;
+                    })() : currency(p.cost)}
+                  </td>
+                  <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700 }}>
+                    {p.serialized ? (() => {
+                      const inStock = (p.units || []).filter(u => u.status === "in_stock");
+                      if (inStock.length === 0) return <span style={{ color: "#9ca3af", fontSize: 12, fontWeight: 400 }}>—</span>;
+                      const prices = inStock.map(u => u.price ?? 0);
+                      const minP = Math.min(...prices); const maxP = Math.max(...prices);
+                      return <span>{minP === maxP ? currency(minP) : `${currency(minP)}–${currency(maxP)}`}</span>;
+                    })() : currency(p.price)}
+                  </td>
                   <td style={{ padding: "10px 8px", textAlign: "right" }}>
                     <Badge color={stock === 0 ? "#ef4444" : stock < 5 ? "#f59e0b" : "#10b981"}>{stock}</Badge>
                   </td>
