@@ -79,14 +79,19 @@ const parseExcelRows = (rows) => {
 
     const key = sku.toUpperCase();
     if (!grouped[key]) {
-      grouped[key] = { name, sku, category, cost, price, units: [], stock: 0, serialized: false };
+      // Auto-mark as serialized if category is in the SERIALIZED_CATEGORIES list
+      const isSerializedCategory = SERIALIZED_CATEGORIES.includes(category);
+      grouped[key] = { name, sku, category, cost, price, units: [], stock: 0, serialized: isSerializedCategory };
     }
     const p = grouped[key];
 
     if (imei) {
-      // Serialized unit row — uses per-unit cost if provided, otherwise product default
+      // Serialized unit row — always mark serialized when IMEI provided
       p.serialized = true;
       p.units.push({ id: uid(), imei, color, storage, cost: unitCost, price: unitPrice, grade: GRADES.includes(grade) ? grade : "", supplier, status: "in_stock" });
+    } else if (p.serialized) {
+      // Serialized category but no IMEI on this row — warn
+      errors.push(`Row ${rowNum}: ${category} requires an IMEI/Serial Number`);
     } else if (stockRaw !== undefined && stockRaw !== "" && stockRaw !== null) {
       // Non-serialized quantity row
       p.stock += parseInt(stockRaw, 10) || 0;
