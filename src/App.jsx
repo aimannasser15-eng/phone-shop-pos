@@ -32,7 +32,8 @@ const TAB_ICONS = {
   reports: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
 };
 
-const CATEGORIES = ["Smartphones", "Laptops", "Tablets", "Accessories", "Cases", "Chargers", "Screen Protectors", "Cables", "Audio", "Other"];
+const CATEGORIES = ["Smartphones", "Laptops", "Tablets", "Accessories", "Cases", "Chargers", "Screen Protectors", "Cables", "Audio", "Repair Parts", "Other"];
+const PART_TYPES = ["LCD Screen", "Battery", "Charging Port", "Speaker", "Camera", "Back Glass", "Frame", "Other"];
 const SERIALIZED_CATEGORIES = ["Smartphones", "Laptops", "Tablets", "Audio"];
 const REPAIR_STATUSES = ["Received", "Diagnosing", "Waiting for Parts", "In Repair", "Testing", "Ready for Pickup", "Completed"];
 const GRADES = ["A", "B", "C", "D"];
@@ -590,6 +591,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
 
   const filtered = products.filter(p => {
     const s = search.toLowerCase();
+    if (p.category === "Repair Parts") return false; // Hide internal repair parts from POS
     if (getStock(p) <= 0) return false;
     if (posCatFilter !== "All" && p.category !== posCatFilter) return false;
     if (p.name.toLowerCase().includes(s) || p.sku.toLowerCase().includes(s)) return true;
@@ -997,7 +999,12 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
   const [showStockAlertModal, setShowStockAlertModal] = useState(false);
 
   // Low stock = 1-4 items, Out of stock = 0
-  const lowStockItems = products.filter(p => { const s = getStock(p); return s > 0 && s < 5; });
+  const lowStockItems = products.filter(p => {
+    const s = getStock(p);
+    if (s <= 0) return false;
+    if (p.category === "Repair Parts" && p.minStock) return s <= +p.minStock;
+    return s < 5;
+  });
   const outOfStockItems = products.filter(p => getStock(p) === 0);
   const stockAlertCount = lowStockItems.length + outOfStockItems.length;
 
@@ -1184,14 +1191,27 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
             const cat = e.target.value;
             setForm({ ...form, category: cat, serialized: SERIALIZED_CATEGORIES.includes(cat) });
           }} />
+          {form.category === "Repair Parts" && (
+            <>
+              <Select label="Part Type" options={[{ value: "", label: "Select type…" }, ...PART_TYPES.map(t => ({ value: t, label: t }))]} value={form.partType || ""} onChange={e => setForm({ ...form, partType: e.target.value })} />
+              <Input label="Compatible Models" placeholder="e.g. iPhone 13, iPhone 13 Pro" value={form.compatibleModels || ""} onChange={e => setForm({ ...form, compatibleModels: e.target.value })} />
+            </>
+          )}
           {!(SERIALIZED_CATEGORIES.includes(form.category) || form.serialized) && (
             <>
               <Input label="Cost Price (£)" type="number" min={0} value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} />
-              <Input label="Selling Price (£)" type="number" min={0} value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
+              {form.category !== "Repair Parts" && <Input label="Selling Price (£)" type="number" min={0} value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />}
               <Input label="Quantity" type="number" min={0} value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} />
+              {form.category === "Repair Parts" && <Input label="Min Stock Level" type="number" min={0} placeholder="e.g. 3" value={form.minStock || ""} onChange={e => setForm({ ...form, minStock: e.target.value })} />}
+              {form.category === "Repair Parts" && <Input label="Supplier (optional)" placeholder="e.g. PartsDirect" value={form.supplier || ""} onChange={e => setForm({ ...form, supplier: e.target.value })} />}
             </>
           )}
         </div>
+        {form.category === "Repair Parts" && (
+          <div style={{ background: "#eef2ff", borderRadius: 10, padding: 14, marginTop: 4, border: "1px solid #2563eb40" }}>
+            <div style={{ fontSize: 12, color: "#2563eb" }}>🔧 <strong>Repair Part</strong> — used internally on repair jobs. Stock is automatically deducted when a repair is marked Completed. You'll get an alert when quantity drops below the Min Stock Level.</div>
+          </div>
+        )}
         {(SERIALIZED_CATEGORIES.includes(form.category) || form.serialized) && (
           <div style={{ background: "#fef3c7", borderRadius: 10, padding: 14, marginTop: 4, border: "1px solid #f59e0b" }}>
             <div style={{ fontSize: 12, color: "#92400e" }}>⚠️ <strong>Serialized product</strong> — each unit has its own cost, price, IMEI, colour, storage and grade. {editing ? 'Use the "Units" button in the table to add/edit individual units.' : 'After creating, click the product name or "Units" button to add each device.'}</div>
@@ -1900,12 +1920,12 @@ const CustomersTab = ({ customers, setCustomers, sales }) => {
 
 // ─── Repairs ────────────────────────────────────────────────────────
 
-const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, activeStaff }) => {
+const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, setProducts, activeStaff }) => {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [statusFilter, setStatusFilter] = useState("All");
   const [repairSearch, setRepairSearch] = useState("");
-  const blank = { customer: "", customerName: "", customerPhone: "", customerEmail: "", _autoFilled: false, device: "", imei: "", issue: "", status: "Received", cost: "", payment: "cash", cashPaid: "", notes: "" };
+  const blank = { customer: "", customerName: "", customerPhone: "", customerEmail: "", _autoFilled: false, device: "", imei: "", issue: "", status: "Received", cost: "", payment: "cash", cashPaid: "", notes: "", partsUsed: [], partsDeducted: false };
   const [form, setForm] = useState(blank);
 
   const openAdd = () => { setForm(blank); setEditing(null); setShowModal(true); };
@@ -1932,11 +1952,83 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, activeStaff 
       customerId = newCust.id;
     }
     const repairCost = +form.cost || 0;
-    const item = { customer: customerId, device: form.device, imei: form.imei, issue: form.issue, status: form.status, cost: repairCost, payment: form.payment || "cash", cashPaid: form.payment === "mix" ? (+form.cashPaid || 0) : (form.payment === "cash" ? repairCost : 0), cardPaid: form.payment === "mix" ? (repairCost - (+form.cashPaid || 0)) : (form.payment === "card" ? repairCost : 0), notes: form.notes, staff: editing ? form.staff : (activeStaff?.name || ""), staffId: editing ? form.staffId : (activeStaff?.id || "") };
+    const partsCost = (form.partsUsed || []).reduce((t, p) => t + ((p.cost || 0) * (p.qty || 1)), 0);
+    const item = { customer: customerId, device: form.device, imei: form.imei, issue: form.issue, status: form.status, cost: repairCost, partsCost, partsUsed: form.partsUsed || [], partsDeducted: form.partsDeducted || false, payment: form.payment || "cash", cashPaid: form.payment === "mix" ? (+form.cashPaid || 0) : (form.payment === "cash" ? repairCost : 0), cardPaid: form.payment === "mix" ? (repairCost - (+form.cashPaid || 0)) : (form.payment === "card" ? repairCost : 0), notes: form.notes, staff: editing ? form.staff : (activeStaff?.name || ""), staffId: editing ? form.staffId : (activeStaff?.id || "") };
+
+    // Detect status transition for stock deduction
+    const oldRepair = editing ? repairs.find(r => r.id === editing) : null;
+    const wasCompleted = oldRepair?.status === "Completed";
+    const nowCompleted = form.status === "Completed";
+
+    // Auto-deduct stock when transitioning to Completed (and only once)
+    if (nowCompleted && !wasCompleted && !form.partsDeducted && (form.partsUsed || []).length > 0) {
+      // Validate stock is available
+      const insufficientPart = (form.partsUsed || []).find(used => {
+        const product = products.find(p => p.id === used.productId);
+        return !product || (product.stock || 0) < (used.qty || 1);
+      });
+      if (insufficientPart) {
+        alert(`Cannot mark as Completed — not enough stock of "${insufficientPart.name}". Current stock: ${products.find(p => p.id === insufficientPart.productId)?.stock || 0}, needed: ${insufficientPart.qty || 1}`);
+        return;
+      }
+      // Deduct each part from product stock
+      setProducts(prev => prev.map(p => {
+        const used = (form.partsUsed || []).find(u => u.productId === p.id);
+        if (!used) return p;
+        return { ...p, stock: Math.max(0, (p.stock || 0) - (used.qty || 1)) };
+      }));
+      item.partsDeducted = true;
+      item.partsDeductedDate = new Date().toISOString();
+    }
+
+    // Auto-restore stock if reversing from Completed back to another status
+    if (wasCompleted && !nowCompleted && oldRepair?.partsDeducted && (oldRepair.partsUsed || []).length > 0) {
+      setProducts(prev => prev.map(p => {
+        const used = (oldRepair.partsUsed || []).find(u => u.productId === p.id);
+        if (!used) return p;
+        return { ...p, stock: (p.stock || 0) + (used.qty || 1) };
+      }));
+      item.partsDeducted = false;
+      item.partsDeductedDate = null;
+    }
+
     if (editing) setRepairs(prev => prev.map(r => r.id === editing ? { ...r, ...item } : r));
     else setRepairs(prev => [...prev, { ...item, id: uid(), dateIn: today() }]);
     setShowModal(false);
   };
+
+  // Helper functions for managing parts on the form
+  const addPartToRepair = (product) => {
+    const partItem = {
+      id: uid(),
+      productId: product.id,
+      name: product.name,
+      partType: product.partType || "",
+      cost: product.cost || 0,
+      qty: 1,
+    };
+    setForm(prev => ({ ...prev, partsUsed: [...(prev.partsUsed || []), partItem] }));
+  };
+
+  const removePartFromRepair = (partId) => {
+    setForm(prev => ({ ...prev, partsUsed: (prev.partsUsed || []).filter(p => p.id !== partId) }));
+  };
+
+  const updatePartQty = (partId, qty) => {
+    setForm(prev => ({ ...prev, partsUsed: (prev.partsUsed || []).map(p => p.id === partId ? { ...p, qty: +qty || 1 } : p) }));
+  };
+
+  const [showPartsPicker, setShowPartsPicker] = useState(false);
+  const [partsPickerSearch, setPartsPickerSearch] = useState("");
+
+  // Available repair parts (filtered)
+  const availableParts = products.filter(p => p.category === "Repair Parts" && (p.stock || 0) > 0);
+
+  // Filter parts picker by search and (if device set) compatible models
+  const filteredParts = availableParts.filter(p => {
+    if (partsPickerSearch && !p.name.toLowerCase().includes(partsPickerSearch.toLowerCase()) && !(p.compatibleModels || "").toLowerCase().includes(partsPickerSearch.toLowerCase())) return false;
+    return true;
+  });
   const updateStatus = (id, status) => setRepairs(prev => prev.map(r => r.id === id ? { ...r, status } : r));
   const filtered = repairs.filter(r => {
     if (statusFilter !== "All" && r.status !== statusFilter) return false;
@@ -1977,6 +2069,12 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, activeStaff 
                   {r.imei && <div style={{ fontSize: 12, color: "#f59e0b", fontFamily: "monospace", marginBottom: 3 }}>IMEI/SN: {r.imei}</div>}
                   <div style={{ fontSize: 13, color: "#6b7280" }}>Fault: {r.issue}</div>
                   {r.staff && <div style={{ fontSize: 11, color: "#2563eb", marginTop: 2 }}>👤 Booked by {r.staff}</div>}
+                  {(r.partsUsed || []).length > 0 && (
+                    <div style={{ fontSize: 11, color: r.partsDeducted ? "#10b981" : "#6b7280", marginTop: 4, fontWeight: 500 }}>
+                      🔧 Parts: {r.partsUsed.map(p => `${p.qty || 1}× ${p.name}`).join(", ")}
+                      {r.partsDeducted && <span style={{ marginLeft: 6, fontWeight: 700 }}>(deducted)</span>}
+                    </div>
+                  )}
                   {cust && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>Customer: {cust.name} · {cust.phone}</div>}
                   {r.notes && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>📝 {r.notes}</div>}
                 </div>
@@ -2035,8 +2133,46 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, activeStaff 
         <Input label="Fault" placeholder="e.g. Cracked screen, not charging" value={form.issue} onChange={e => setForm({ ...form, issue: e.target.value })} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
           <Select label="Status" options={REPAIR_STATUSES} value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} />
-          <Input label="Repair Cost (£)" type="number" min={0} value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} />
+          <Input label="Labour / Service Charge (£)" type="number" min={0} value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} />
         </div>
+
+        {/* ─── PARTS USED ─── */}
+        <div style={{ background: "#eef2ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: "#2563eb", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>🔧 Parts Used</div>
+            <button type="button" onClick={() => { setShowPartsPicker(true); setPartsPickerSearch(form.device || ""); }}
+              style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>+ Add Part</button>
+          </div>
+          {(form.partsUsed || []).length === 0 ? (
+            <div style={{ textAlign: "center", padding: 14, color: "#9ca3af", fontSize: 12, background: "#ffffff", borderRadius: 10, border: "1px dashed #d4d8e0" }}>
+              No parts added yet. Click "+ Add Part" to select from your repair parts inventory.
+            </div>
+          ) : (
+            <div style={{ background: "#ffffff", borderRadius: 10, border: "1px solid #d4d8e0" }}>
+              {form.partsUsed.map((part, idx) => (
+                <div key={part.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderBottom: idx < form.partsUsed.length - 1 ? "1px solid #f3f4f6" : "none" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{part.name}</div>
+                    {part.partType && <div style={{ fontSize: 11, color: "#6b7280" }}>{part.partType}</div>}
+                  </div>
+                  <div style={{ width: 60 }}>
+                    <input type="number" min={1} value={part.qty} onChange={e => updatePartQty(part.id, e.target.value)}
+                      style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", textAlign: "center", boxSizing: "border-box", outline: "none" }} />
+                  </div>
+                  <div style={{ width: 80, textAlign: "right", fontSize: 13, fontWeight: 700, color: "#374151" }}>{currency((part.cost || 0) * (part.qty || 1))}</div>
+                  <button type="button" onClick={() => removePartFromRepair(part.id)} style={{ background: "transparent", border: "1px solid #ef4444", color: "#ef4444", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>✕</button>
+                </div>
+              ))}
+              <div style={{ padding: "8px 12px", background: "#f8f9fc", borderTop: "2px solid #d4d8e0", display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700 }}>
+                <span style={{ color: "#374151" }}>Parts Total Cost</span>
+                <span style={{ color: "#111827" }}>{currency((form.partsUsed || []).reduce((t, p) => t + ((p.cost || 0) * (p.qty || 1)), 0))}</span>
+              </div>
+            </div>
+          )}
+          {form.partsDeducted && <div style={{ fontSize: 11, color: "#10b981", marginTop: 6, fontWeight: 600 }}>✅ Parts deducted from stock</div>}
+          {!form.partsDeducted && (form.partsUsed || []).length > 0 && form.status !== "Completed" && <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>💡 Stock will be deducted automatically when status is set to "Completed"</div>}
+        </div>
+
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Payment Method</label>
           <div style={{ display: "flex", gap: 6 }}>
@@ -2056,6 +2192,45 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, activeStaff 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
           <Btn variant="ghost" onClick={() => setShowModal(false)}>Cancel</Btn>
           <Btn onClick={save}>{editing ? "Save Changes" : "Create Repair"}</Btn>
+        </div>
+      </Modal>
+
+      {/* Parts Picker Modal */}
+      <Modal open={showPartsPicker} onClose={() => setShowPartsPicker(false)} title="Add Part to Repair">
+        <Input placeholder={form.device ? `Search parts (try '${form.device}')` : "Search parts by name or compatible model…"} value={partsPickerSearch} onChange={e => setPartsPickerSearch(e.target.value)} />
+        <div style={{ maxHeight: "50vh", overflowY: "auto" }}>
+          {filteredParts.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 24, color: "#9ca3af", fontSize: 13 }}>
+              {availableParts.length === 0 ? (
+                <>No repair parts in stock. Add some via Inventory → + Add Product → Category: Repair Parts</>
+              ) : (
+                <>No parts match "{partsPickerSearch}"</>
+              )}
+            </div>
+          ) : (
+            filteredParts.map(p => {
+              const alreadyAdded = (form.partsUsed || []).some(u => u.productId === p.id);
+              return (
+                <div key={p.id} style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{p.name}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>
+                      {p.partType && <span>{p.partType} · </span>}
+                      {p.compatibleModels && <span>Fits: {p.compatibleModels} · </span>}
+                      Cost: {currency(p.cost)} · {p.stock} in stock
+                      {p.minStock && +p.stock <= +p.minStock && <span style={{ color: "#f59e0b", fontWeight: 600 }}> ⚠ Low</span>}
+                    </div>
+                  </div>
+                  {alreadyAdded ? (
+                    <span style={{ fontSize: 11, color: "#10b981", fontWeight: 600, padding: "5px 10px" }}>✅ Added</span>
+                  ) : (
+                    <button onClick={() => { addPartToRepair(p); setShowPartsPicker(false); }}
+                      style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>+ Add</button>
+                  )}
+                </div>
+              );
+            })
+          )}
         </div>
       </Modal>
     </div>
@@ -3251,11 +3426,14 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
 
   // Repairs (only completed ones count as income)
   const periodRepairs = repairs.filter(r => r.status === "Completed" && filterDate(r.dateIn));
-  let repairCash = 0, repairCard = 0;
+  let repairCash = 0, repairCard = 0, repairPartsCost = 0;
   periodRepairs.forEach(r => {
     repairCash += (r.cashPaid || (r.payment === "cash" ? (r.cost || 0) : 0));
     repairCard += (r.cardPaid || (r.payment === "card" ? (r.cost || 0) : 0));
+    repairPartsCost += (r.partsCost || 0);
   });
+  const repairRevenueGross = periodRepairs.reduce((t, r) => t + (r.cost || 0), 0);
+  const repairProfit = repairRevenueGross - repairPartsCost;
 
   // Trade-in payouts (money going OUT to customers)
   const periodTradeIns = tradeIns.filter(t => filterDate(t.dateIn));
@@ -3310,8 +3488,9 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
 
   const revenue = filtered.reduce((t, s) => t + s.total, 0);
   const totalCost = filtered.reduce((t, s) => t + s.items.reduce((a, i) => a + ((i.cost || 0) * i.qty), 0), 0);
-  const profit = revenue - totalCost;
-  const profitMargin = revenue > 0 ? (profit / revenue) * 100 : 0;
+  // Combined profit = sales profit + repair profit (labour after parts cost)
+  const profit = (revenue - totalCost) + repairProfit;
+  const profitMargin = (revenue + repairRevenueGross) > 0 ? (profit / (revenue + repairRevenueGross)) * 100 : 0;
   const itemsSold = filtered.reduce((t, s) => t + s.items.reduce((a, i) => a + i.qty, 0), 0);
   const avgSale = filtered.length ? revenue / filtered.length : 0;
   const prodMap = {};
@@ -3376,7 +3555,8 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <StatCard label="Items Sold" value={itemsSold} color="#2563eb" />
         <StatCard label="Average Sale" value={currency(avgSale)} color="#3b82f6" />
-        <StatCard label="Repair Revenue" value={currency(repairRev)} color="#f59e0b" />
+        <StatCard label="Repair Revenue" value={currency(repairRevenueGross)} color="#f59e0b" sub={periodRepairs.length > 0 ? `${periodRepairs.length} jobs` : ""} />
+        {repairPartsCost > 0 && <StatCard label="Repair Parts Cost" value={currency(repairPartsCost)} color="#ef4444" sub={`Profit: ${currency(repairProfit)}`} />}
       </div>
 
       {/* Cash & Card Breakdown */}
@@ -3893,7 +4073,7 @@ function MainApp({ user }) {
           {tab === "inventory" && <InventoryTab products={products} setProducts={setProducts} deletionLogs={deletionLogs} setDeletionLogs={setDeletionLogs} user={user} activeStaff={activeStaff} />}
           {tab === "sales" && <SalesHistoryTab sales={sales} setSales={setSales} products={products} setProducts={setProducts} customers={customers} activeStaff={activeStaff} />}
           {tab === "customers" && <CustomersTab customers={customers} setCustomers={setCustomers} sales={sales} />}
-          {tab === "repairs" && <RepairsTab repairs={repairs} setRepairs={setRepairs} customers={customers} setCustomers={setCustomers} activeStaff={activeStaff} />}
+          {tab === "repairs" && <RepairsTab repairs={repairs} setRepairs={setRepairs} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} activeStaff={activeStaff} />}
           {tab === "tradeins" && <TradeInsTab tradeIns={tradeIns} setTradeIns={setTradeIns} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} activeStaff={activeStaff} />}
           {tab === "deposits" && <DepositsTab deposits={deposits} setDeposits={setDeposits} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} sales={sales} setSales={setSales} activeStaff={activeStaff} />}
           {tab === "reports" && <ReportsTab sales={sales} products={products} repairs={repairs} tradeIns={tradeIns} deposits={deposits} />}
