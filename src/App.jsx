@@ -35,12 +35,22 @@ const TAB_ICONS = {
 const CATEGORIES = ["Smartphones", "Laptops", "Tablets", "Accessories", "Cases", "Chargers", "Screen Protectors", "Cables", "Audio", "Repair Parts", "Other"];
 const PART_TYPES = ["LCD Screen", "Battery", "Charging Port", "Speaker", "Camera", "Back Glass", "Frame", "Other"];
 const SERIALIZED_CATEGORIES = ["Smartphones", "Laptops", "Tablets", "Audio"];
+const BRANDS = ["Apple", "Android", "Other"];
 const REPAIR_STATUSES = ["Received", "Diagnosing", "Waiting for Parts", "In Repair", "Testing", "Ready for Pickup", "Completed"];
 const GRADES = ["A", "B", "C", "D"];
 
 const currency = (n) => `£${Number(n || 0).toFixed(2)}`;
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const today = () => new Date().toISOString().slice(0, 10);
+
+// Auto-detect brand from product name (helps when adding new phones)
+const detectBrand = (name) => {
+  if (!name) return "";
+  const n = name.toLowerCase();
+  if (/iphone|ipad|macbook|imac|airpods|apple watch|apple/.test(n)) return "Apple";
+  if (/samsung|galaxy|pixel|google|oneplus|xiaomi|huawei|oppo|vivo|nokia|sony xperia|motorola|honor|realme/.test(n)) return "Android";
+  return "";
+};
 
 const getStock = (p) => {
   if (p.serialized) return (p.units || []).filter(u => u.status === "in_stock").length;
@@ -73,6 +83,8 @@ const parseExcelRows = (rows) => {
     const unitPrice = parseFloat(r["unit price"] || r["sell price"] || r.unitprice || 0) || price;
     const grade = (r.grade || "").toString().trim().toUpperCase();
     const supplier = (r.supplier || "").toString().trim();
+    const brand = (r.brand || "").toString().trim();
+    const notes = (r.notes || r.note || "").toString().trim();
 
     if (!name) { errors.push(`Row ${rowNum}: missing Name`); return; }
     if (!sku) { errors.push(`Row ${rowNum}: missing SKU`); return; }
@@ -82,14 +94,16 @@ const parseExcelRows = (rows) => {
     if (!grouped[key]) {
       // Auto-mark as serialized if category is in the SERIALIZED_CATEGORIES list
       const isSerializedCategory = SERIALIZED_CATEGORIES.includes(category);
-      grouped[key] = { name, sku, category, cost, price, units: [], stock: 0, serialized: isSerializedCategory };
+      // Auto-detect brand from name if not explicitly provided
+      const finalBrand = isSerializedCategory ? (brand || detectBrand(name) || "Other") : "";
+      grouped[key] = { name, sku, category, cost, price, units: [], stock: 0, serialized: isSerializedCategory, brand: finalBrand };
     }
     const p = grouped[key];
 
     if (imei) {
       // Serialized unit row — always mark serialized when IMEI provided
       p.serialized = true;
-      p.units.push({ id: uid(), imei, color, storage, cost: unitCost, price: unitPrice, grade: GRADES.includes(grade) ? grade : "", supplier, status: "in_stock" });
+      p.units.push({ id: uid(), imei, color, storage, cost: unitCost, price: unitPrice, grade: GRADES.includes(grade) ? grade : "", supplier, notes, status: "in_stock" });
     } else if (p.serialized) {
       // Serialized category but no IMEI on this row — warn
       errors.push(`Row ${rowNum}: ${category} requires an IMEI/Serial Number`);
@@ -107,14 +121,14 @@ const parseExcelRows = (rows) => {
 // Build a downloadable template Excel
 const downloadTemplate = () => {
   const data = [
-    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012345", Colour: "Natural Titanium", Storage: "256GB", Grade: "A", "Unit Cost": 920, "Unit Price": 1199, Supplier: "PhoneStock UK" },
-    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012346", Colour: "Blue Titanium", Storage: "512GB", Grade: "B", "Unit Cost": 980, "Unit Price": 1099, Supplier: "MobileWholesale" },
-    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012347", Colour: "Black Titanium", Storage: "1TB", Grade: "A", "Unit Cost": 1050, "Unit Price": 1349, Supplier: "PhoneStock UK" },
-    { Name: "USB-C Charger 65W", SKU: "USBC65", Category: "Chargers", Cost: 12, Price: 29.99, Quantity: 25, IMEI: "", Colour: "", Storage: "", Grade: "", "Unit Cost": "", "Unit Price": "", Supplier: "" },
-    { Name: "iPhone 15 Clear Case", SKU: "IP15CC", Category: "Cases", Cost: 5, Price: 19.99, Quantity: 40, IMEI: "", Colour: "", Storage: "", Grade: "", "Unit Cost": "", "Unit Price": "", Supplier: "" },
+    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Brand: "Apple", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012345", Colour: "Natural Titanium", Storage: "256GB", Grade: "A", "Unit Cost": 920, "Unit Price": 1199, Supplier: "PhoneStock UK", Notes: "Battery 100% · Sealed box" },
+    { Name: "iPhone 15 Pro Max", SKU: "IP15PM", Category: "Smartphones", Brand: "Apple", Cost: 950, Price: 1199, Quantity: "", IMEI: "353456789012346", Colour: "Blue Titanium", Storage: "512GB", Grade: "B", "Unit Cost": 980, "Unit Price": 1099, Supplier: "MobileWholesale", Notes: "Small scratch on back · Battery 89%" },
+    { Name: "Samsung Galaxy S24", SKU: "SGS24", Category: "Smartphones", Brand: "Android", Cost: 600, Price: 799, Quantity: "", IMEI: "353456789012348", Colour: "Black", Storage: "256GB", Grade: "A", "Unit Cost": 600, "Unit Price": 799, Supplier: "PhoneStock UK", Notes: "" },
+    { Name: "USB-C Charger 65W", SKU: "USBC65", Category: "Chargers", Brand: "", Cost: 12, Price: 29.99, Quantity: 25, IMEI: "", Colour: "", Storage: "", Grade: "", "Unit Cost": "", "Unit Price": "", Supplier: "", Notes: "" },
+    { Name: "iPhone 15 Clear Case", SKU: "IP15CC", Category: "Cases", Brand: "", Cost: 5, Price: 19.99, Quantity: 40, IMEI: "", Colour: "", Storage: "", Grade: "", "Unit Cost": "", "Unit Price": "", Supplier: "", Notes: "" },
   ];
   const ws = XLSX.utils.json_to_sheet(data);
-  ws["!cols"] = [{ wch: 24 }, { wch: 10 }, { wch: 16 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 16 }];
+  ws["!cols"] = [{ wch: 24 }, { wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 16 }, { wch: 30 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Products");
   XLSX.writeFile(wb, "phone-shop-import-template.xlsx");
@@ -164,7 +178,7 @@ const buildReceiptHTML = ({ type, data, customer }) => {
   const itemsHTML = isSale
     ? data.items.map(i => `
         <tr>
-          <td>${i.qty}× ${i.name}${(i.color || i.storage) ? `<br><span style="color:#666;font-size:11px">${[i.color, i.storage, i.grade ? `Grade ${i.grade}` : ""].filter(Boolean).join(" · ")}</span>` : ""}${i.imei ? `<br><span style="color:#b45309;font-size:11px;font-family:monospace">IMEI/SN: ${i.imei}</span>` : ""}</td>
+          <td>${i.qty}× ${i.name}${(i.color || i.storage) ? `<br><span style="color:#666;font-size:11px">${[i.color, i.storage, i.grade ? `Grade ${i.grade}` : ""].filter(Boolean).join(" · ")}</span>` : ""}${i.imei ? `<br><span style="color:#b45309;font-size:11px;font-family:monospace">IMEI/SN: ${i.imei}</span>` : ""}${i.notes ? `<br><span style="color:#374151;font-size:11px;font-style:italic;display:block;margin-top:3px;padding:4px 6px;background:#fef9c3;border-left:2px solid #f59e0b">📝 ${i.notes}</span>` : ""}</td>
           <td style="text-align:right">£${(i.price * i.qty).toFixed(2)}</td>
         </tr>`).join("")
     : `
@@ -555,6 +569,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
   const [cashAmount, setCashAmount] = useState("");
   const [imeiPicker, setImeiPicker] = useState(null);
   const [posCatFilter, setPosCatFilter] = useState("All");
+  const [posBrandFilter, setPosBrandFilter] = useState("All");
   const [scanInput, setScanInput] = useState("");
   const [scanMsg, setScanMsg] = useState("");
 
@@ -594,6 +609,11 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
     if (p.category === "Repair Parts") return false; // Hide internal repair parts from POS
     if (getStock(p) <= 0) return false;
     if (posCatFilter !== "All" && p.category !== posCatFilter) return false;
+    if (posBrandFilter !== "All") {
+      // Brand filter only matches serialized products
+      if (!p.serialized) return false;
+      if ((p.brand || "Other") !== posBrandFilter) return false;
+    }
     if (p.name.toLowerCase().includes(s) || p.sku.toLowerCase().includes(s)) return true;
     if (p.serialized && (p.units || []).some(u => u.status === "in_stock" && u.imei.toLowerCase().includes(s))) return true;
     return false;
@@ -626,7 +646,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
   };
 
   const addSerializedToCart = (p, unit) => {
-    setCart(prev => [...prev, { cartItemId: uid(), productId: p.id, name: p.name, price: unit.price ?? p.price ?? 0, cost: unit.cost ?? p.cost ?? 0, qty: 1, imei: unit.imei, unitId: unit.id, color: unit.color || "", storage: unit.storage || "", grade: unit.grade || "" }]);
+    setCart(prev => [...prev, { cartItemId: uid(), productId: p.id, name: p.name, price: unit.price ?? p.price ?? 0, cost: unit.cost ?? p.cost ?? 0, qty: 1, imei: unit.imei, unitId: unit.id, color: unit.color || "", storage: unit.storage || "", grade: unit.grade || "", notes: unit.notes || "" }]);
     setImeiPicker(null);
   };
 
@@ -662,7 +682,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
     if (cart.length === 0) return;
     const sale = {
       id: uid(),
-      items: cart.map(c => ({ productId: c.productId, name: c.name, qty: c.qty, price: c.price, cost: c.cost ?? 0, imei: c.imei || "", unitId: c.unitId || "", color: c.color || "", storage: c.storage || "", grade: c.grade || "" })),
+      items: cart.map(c => ({ productId: c.productId, name: c.name, qty: c.qty, price: c.price, cost: c.cost ?? 0, imei: c.imei || "", unitId: c.unitId || "", color: c.color || "", storage: c.storage || "", grade: c.grade || "", notes: c.notes || "" })),
       subtotal, discount, discountAmt, total,
       payment: payMethod,
       cashPaid: payMethod === "mix" ? (+cashAmount || 0) : (payMethod === "cash" ? total : 0),
@@ -706,6 +726,24 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
           {scanMsg && <div style={{ fontSize: 13, fontWeight: 600, color: scanMsg.startsWith("✅") ? "#10b981" : scanMsg.startsWith("⚠") ? "#f59e0b" : "#ef4444", whiteSpace: "nowrap" }}>{scanMsg}</div>}
         </div>
         <Input placeholder="Search by name, SKU, or IMEI/Serial…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 0 }} />
+
+        {/* Brand Filter Pills (Apple / Android / Other) — show only when there are serialized products */}
+        {products.some(p => p.serialized && getStock(p) > 0) && (
+          <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>📱 Brand:</span>
+            {[["All", "All"], ["Apple", "🍎 Apple"], ["Android", "🤖 Android"], ["Other", "Other"]].map(([val, label]) => {
+              const count = val === "All" ? products.filter(p => p.serialized && getStock(p) > 0).length : products.filter(p => p.serialized && (p.brand || "Other") === val && getStock(p) > 0).length;
+              if (val !== "All" && count === 0) return null; // hide empty brand pills
+              const active = posBrandFilter === val;
+              return (
+                <button key={val} onClick={() => setPosBrandFilter(val)}
+                  style={{ padding: "5px 12px", borderRadius: 16, border: `1px solid ${active ? "#2563eb" : "#d4d8e0"}`, background: active ? "#2563eb15" : "#ffffff", color: active ? "#2563eb" : "#7070a0", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
+                  {label}{val !== "All" && <span style={{ marginLeft: 5, opacity: 0.6, fontSize: 11 }}>{count}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Category Filter Pills */}
         <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
@@ -775,6 +813,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
                 {(c.color || c.storage || c.grade) && <div style={{ fontSize: 11, color: "#2563eb", marginTop: 1 }}>{[c.color, c.storage, c.grade ? `Grade ${c.grade}` : ""].filter(Boolean).join(" · ")}</div>}
                 {c.imei && <div style={{ fontSize: 10, color: "#f59e0b", fontFamily: "monospace", marginTop: 1 }}>IMEI/SN: {c.imei}</div>}
+                {c.notes && <div style={{ fontSize: 10, color: "#92400e", marginTop: 2, padding: "2px 6px", background: "#fef9c3", borderRadius: 4, borderLeft: "2px solid #f59e0b", whiteSpace: "normal" }}>📝 {c.notes}</div>}
                 <div style={{ fontSize: 12, color: "#3b82f6" }}>{currency(c.price)}</div>
               </div>
               {c.unitId ? (
@@ -900,6 +939,7 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("All");
+  const [brandFilter, setBrandFilter] = useState("All");
   const [unitsModal, setUnitsModal] = useState(null);
   const [newImei, setNewImei] = useState("");
   const [newColor, setNewColor] = useState("");
@@ -908,6 +948,7 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
   const [newUnitPrice, setNewUnitPrice] = useState("");
   const [newSupplier, setNewSupplier] = useState("");
   const [newGrade, setNewGrade] = useState("");
+  const [newUnitNotes, setNewUnitNotes] = useState("");
   const [importModal, setImportModal] = useState(false);
   const [importPreview, setImportPreview] = useState(null); // { products, errors } or null
   const [importError, setImportError] = useState("");
@@ -984,6 +1025,7 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
       cost: isSerialized ? 0 : (+form.cost || 0),
       stock: isSerialized ? 0 : (+form.stock || 0),
       serialized: isSerialized,
+      brand: isSerialized ? (form.brand || detectBrand(form.name) || "Other") : "",
       units: form.units || [],
     };
     if (!item.name || !item.sku) { alert("Name and SKU are required"); return; }
@@ -1083,7 +1125,7 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
     const product = products.find(p => p.id === productId);
     const unitCost = +newUnitCost;
     const unitPrice = +newUnitPrice;
-    setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: [...(p.units || []), { id: uid(), imei: newImei.trim(), color: newColor.trim(), storage: newStorage.trim(), cost: unitCost, price: unitPrice, supplier: newSupplier.trim(), grade: newGrade, status: "in_stock" }] } : p));
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, units: [...(p.units || []), { id: uid(), imei: newImei.trim(), color: newColor.trim(), storage: newStorage.trim(), cost: unitCost, price: unitPrice, supplier: newSupplier.trim(), grade: newGrade, notes: newUnitNotes.trim(), status: "in_stock" }] } : p));
     setNewImei("");
     setNewColor("");
     setNewStorage("");
@@ -1091,17 +1133,25 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
     setNewUnitPrice("");
     setNewSupplier("");
     setNewGrade("");
+    setNewUnitNotes("");
   };
 
-  const filtered = products.filter(p =>
-    (catFilter === "All" || p.category === catFilter) &&
-    (p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase()) || (p.units || []).some(u => u.imei.toLowerCase().includes(search.toLowerCase())))
-  );
+  const filtered = products.filter(p => {
+    if (catFilter !== "All" && p.category !== catFilter) return false;
+    // Brand filter only applies to serialized products
+    if (brandFilter !== "All" && p.serialized && (p.brand || "Other") !== brandFilter) return false;
+    if (brandFilter !== "All" && !p.serialized) return false; // hide non-serialized when filtering by brand
+    const s = search.toLowerCase();
+    return p.name.toLowerCase().includes(s) || p.sku.toLowerCase().includes(s) || (p.units || []).some(u => u.imei.toLowerCase().includes(s));
+  });
 
   const totalValue = products.reduce((s, p) => s + p.price * getStock(p), 0);
   const lowStock = products.filter(p => { const s = getStock(p); return s > 0 && s < 5; }).length;
   const outOfStock = products.filter(p => getStock(p) === 0).length;
   const currentUnitsProduct = unitsModal ? products.find(p => p.id === unitsModal.id) : null;
+
+  // Brand counts for the pills
+  const brandCount = (b) => products.filter(p => p.serialized && (p.brand || "Other") === b).reduce((t, p) => t + getStock(p), 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -1111,6 +1161,18 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
         <StatCard label="Low Stock" value={lowStock} color="#f59e0b" sub="Below 5 units" />
         <StatCard label="Out of Stock" value={outOfStock} color="#ef4444" />
       </div>
+
+      {/* Brand quick filter pills */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>📱 Phones:</span>
+        {[["All", "All Stock"], ["Apple", "🍎 Apple"], ["Android", "🤖 Android"], ["Other", "Other"]].map(([val, label]) => (
+          <button key={val} onClick={() => setBrandFilter(val)}
+            style={{ padding: "5px 14px", borderRadius: 16, border: `1px solid ${brandFilter === val ? "#2563eb" : "#d4d8e0"}`, background: brandFilter === val ? "#2563eb15" : "#ffffff", color: brandFilter === val ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>
+            {label}{val !== "All" && <span style={{ marginLeft: 6, background: brandFilter === val ? "#2563eb" : "#e5e7eb", color: brandFilter === val ? "#fff" : "#6b7280", borderRadius: 10, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>{brandCount(val)}</span>}
+          </button>
+        ))}
+      </div>
+
       <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "flex-end" }}>
         <div style={{ flex: 1 }}><Input placeholder="Search by name, SKU, or IMEI…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
         <Select options={["All", ...CATEGORIES]} value={catFilter} onChange={e => setCatFilter(e.target.value)} style={{ width: 160, marginBottom: 0 }} />
@@ -1185,12 +1247,21 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Product" : "Add Product"}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
-          <div style={{ gridColumn: "1/-1" }}><Input label="Product Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
+          <div style={{ gridColumn: "1/-1" }}><Input label="Product Name" value={form.name} onChange={e => {
+            const newName = e.target.value;
+            const detected = detectBrand(newName);
+            // Auto-set brand if not yet set and we detected one
+            const newBrand = (!form.brand && detected) ? detected : form.brand;
+            setForm({ ...form, name: newName, brand: newBrand });
+          }} /></div>
           <Input label="SKU" value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} />
           <Select label="Category" options={CATEGORIES} value={form.category} onChange={e => {
             const cat = e.target.value;
             setForm({ ...form, category: cat, serialized: SERIALIZED_CATEGORIES.includes(cat) });
           }} />
+          {SERIALIZED_CATEGORIES.includes(form.category) && (
+            <Select label="Brand" options={[{ value: "", label: "Select brand…" }, ...BRANDS.map(b => ({ value: b, label: b }))]} value={form.brand || ""} onChange={e => setForm({ ...form, brand: e.target.value })} />
+          )}
           {form.category === "Repair Parts" && (
             <>
               <Select label="Part Type" options={[{ value: "", label: "Select type…" }, ...PART_TYPES.map(t => ({ value: t, label: t }))]} value={form.partType || ""} onChange={e => setForm({ ...form, partType: e.target.value })} />
@@ -1256,6 +1327,9 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
                 <Input label="Supplier" placeholder="e.g. WeBuy" value={newSupplier} onChange={e => setNewSupplier(e.target.value)} />
               </div>
 
+              {/* Row 4: Notes — shows on receipt */}
+              <Input label="Notes (will show on receipt)" placeholder="e.g. Small scratch on back · Battery 87% · Sold without box" value={newUnitNotes} onChange={e => setNewUnitNotes(e.target.value)} />
+
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
                 <Btn onClick={() => addUnit(currentUnitsProduct.id)} variant="success" style={{ padding: "10px 24px", fontSize: 14 }}>➕ Add Unit to Stock</Btn>
               </div>
@@ -1278,24 +1352,40 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
                 </thead>
                 <tbody>
                   {currentUnitsProduct.units.map((u, i) => (
-                    <tr key={u.id} style={{ borderBottom: "1px solid #e5e7eb" }}>
-                      <td style={{ padding: "8px", color: "#9ca3af" }}>{i + 1}</td>
-                      <td style={{ padding: "8px", fontFamily: "monospace", color: "#f59e0b", fontWeight: 700, fontSize: 14 }}>{u.imei}</td>
-                      <td style={{ padding: "8px", color: "#2563eb" }}>{u.color || "—"}</td>
-                      <td style={{ padding: "8px", color: "#374151", fontWeight: 600 }}>{u.storage || "—"}</td>
-                      <td style={{ padding: "8px" }}>{u.grade ? <Badge color={u.grade === "A" ? "#10b981" : u.grade === "B" ? "#3b82f6" : u.grade === "C" ? "#f59e0b" : "#ef4444"}>Grade {u.grade}</Badge> : "—"}</td>
-                      <td style={{ padding: "8px", textAlign: "right", color: "#ef4444", fontWeight: 600 }}>{currency(u.cost ?? currentUnitsProduct.cost ?? 0)}</td>
-                      <td style={{ padding: "8px", textAlign: "right", color: "#10b981", fontWeight: 700 }}>{currency(u.price ?? currentUnitsProduct.price ?? 0)}</td>
-                      <td style={{ padding: "8px", color: "#6b7280" }}>{u.supplier || "—"}</td>
-                      <td style={{ padding: "8px" }}>
-                        {u.status === "in_stock" ? <Badge color="#10b981">In Stock</Badge> : <Badge color="#6b7280">Sold</Badge>}
-                      </td>
-                      <td style={{ padding: "8px", textAlign: "center" }}>
-                        {u.status === "in_stock" ? (
-                          <button onClick={() => askDeleteUnit(currentUnitsProduct, u)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 12 }}>Remove</button>
-                        ) : <span style={{ color: "#9ca3af", fontSize: 11 }}>—</span>}
-                      </td>
-                    </tr>
+                    <React.Fragment key={u.id}>
+                      <tr style={{ borderBottom: u.notes ? "none" : "1px solid #e5e7eb" }}>
+                        <td style={{ padding: "8px", color: "#9ca3af" }}>{i + 1}</td>
+                        <td style={{ padding: "8px", fontFamily: "monospace", color: "#f59e0b", fontWeight: 700, fontSize: 14 }}>{u.imei}</td>
+                        <td style={{ padding: "8px", color: "#2563eb" }}>{u.color || "—"}</td>
+                        <td style={{ padding: "8px", color: "#374151", fontWeight: 600 }}>{u.storage || "—"}</td>
+                        <td style={{ padding: "8px" }}>{u.grade ? <Badge color={u.grade === "A" ? "#10b981" : u.grade === "B" ? "#3b82f6" : u.grade === "C" ? "#f59e0b" : "#ef4444"}>Grade {u.grade}</Badge> : "—"}</td>
+                        <td style={{ padding: "8px", textAlign: "right", color: "#ef4444", fontWeight: 600 }}>{currency(u.cost ?? currentUnitsProduct.cost ?? 0)}</td>
+                        <td style={{ padding: "8px", textAlign: "right", color: "#10b981", fontWeight: 700 }}>{currency(u.price ?? currentUnitsProduct.price ?? 0)}</td>
+                        <td style={{ padding: "8px", color: "#6b7280" }}>{u.supplier || "—"}</td>
+                        <td style={{ padding: "8px" }}>
+                          {u.status === "in_stock" ? <Badge color="#10b981">In Stock</Badge> : u.status === "reserved" ? <Badge color="#f59e0b">Reserved</Badge> : <Badge color="#6b7280">Sold</Badge>}
+                        </td>
+                        <td style={{ padding: "8px", textAlign: "center" }}>
+                          {u.status === "in_stock" ? (
+                            <button onClick={() => askDeleteUnit(currentUnitsProduct, u)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 12 }}>Remove</button>
+                          ) : <span style={{ color: "#9ca3af", fontSize: 11 }}>—</span>}
+                        </td>
+                      </tr>
+                      {/* Notes row */}
+                      <tr style={{ borderBottom: "1px solid #e5e7eb", background: u.notes ? "#fef9c3" : "transparent" }}>
+                        <td></td>
+                        <td colSpan={9} style={{ padding: "4px 8px 8px" }}>
+                          <input placeholder={u.status === "in_stock" ? "📝 Add notes (will show on receipt) — e.g. small scratch on back, battery 89%" : ""}
+                            value={u.notes || ""}
+                            disabled={u.status !== "in_stock"}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setProducts(prev => prev.map(p => p.id === currentUnitsProduct.id ? { ...p, units: p.units.map(uu => uu.id === u.id ? { ...uu, notes: val } : uu) } : p));
+                            }}
+                            style={{ width: "100%", padding: "5px 10px", borderRadius: 6, border: u.notes ? "1px solid #f59e0b" : "1px dashed #d4d8e0", background: u.notes ? "#ffffff" : "transparent", color: "#374151", fontSize: 12, fontStyle: u.notes ? "normal" : "italic", boxSizing: "border-box", outline: "none", fontFamily: "'DM Sans', sans-serif" }} />
+                        </td>
+                      </tr>
+                    </React.Fragment>
                   ))}
                   {currentUnitsProduct.units.length === 0 && (
                     <tr><td colSpan={10} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>No units yet. Add IMEI/Serial numbers above.</td></tr>
