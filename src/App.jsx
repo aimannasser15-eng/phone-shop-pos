@@ -637,6 +637,10 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
   const [selCustomer, setSelCustomer] = useState("");
   const [showReceipt, setShowReceipt] = useState(null);
   const [emailStatus, setEmailStatus] = useState(null); // { type: "loading"|"success"|"error", message: "..." }
+  const [receiptCustName, setReceiptCustName] = useState("");
+  const [receiptCustPhone, setReceiptCustPhone] = useState("");
+  const [receiptCustEmail, setReceiptCustEmail] = useState("");
+  const [receiptCustSaved, setReceiptCustSaved] = useState(false);
   const [discount, setDiscount] = useState(0);
   const [payMethod, setPayMethod] = useState("cash"); // cash, card, mix
   const [cashAmount, setCashAmount] = useState("");
@@ -878,7 +882,6 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
 
       <div style={{ width: 340, flexShrink: 0, display: "flex", flexDirection: "column", background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 16, padding: 18 }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 12, fontFamily: "'DM Sans', sans-serif" }}>🛒 Cart ({cart.reduce((s, c) => s + c.qty, 0)})</div>
-        <Select label="Customer (optional)" options={[{ value: "", label: "Walk-in Customer" }, ...customers.map(c => ({ value: c.id, label: c.name }))]} value={selCustomer} onChange={e => setSelCustomer(e.target.value)} />
         <div style={{ flex: 1, overflowY: "auto", marginBottom: 12 }}>
           {cart.map(c => (
             <div key={c.cartItemId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #e5e7eb" }}>
@@ -961,7 +964,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
       </Modal>
 
       {/* Receipt */}
-      <Modal open={!!showReceipt} onClose={() => { setShowReceipt(null); setEmailStatus(null); }} title="Receipt">
+      <Modal open={!!showReceipt} onClose={() => { setShowReceipt(null); setEmailStatus(null); setReceiptCustName(""); setReceiptCustPhone(""); setReceiptCustEmail(""); setReceiptCustSaved(false); }} title="Receipt">
         {showReceipt && (
           <div style={{ fontFamily: "'Courier New', monospace", color: "#374151", fontSize: 13 }}>
             <div style={{ textAlign: "center", marginBottom: 14 }}>
@@ -985,34 +988,98 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
             {showReceipt.discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", color: "#ef4444" }}><span>Discount:</span><span>-{currency(showReceipt.discountAmt)}</span></div>}
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 700, color: "#10b981", marginTop: 8 }}><span>TOTAL:</span><span>{currency(showReceipt.total)}</span></div>
             {showReceipt.payment && <div style={{ marginTop: 6, fontSize: 12, color: "#374151" }}>💳 Paid: {showReceipt.payment === "mix" ? `Cash ${currency(showReceipt.cashPaid || 0)} + Card ${currency(showReceipt.cardPaid || 0)}` : showReceipt.payment === "card" ? "Card" : "Cash"}</div>}
-            {showReceipt.customer && <div style={{ marginTop: 10, color: "#6b7280", fontSize: 11 }}>Customer: {customers.find(c => c.id === showReceipt.customer)?.name || "N/A"}</div>}
             <div style={{ textAlign: "center", marginTop: 16, color: "#9ca3af", fontSize: 11 }}>Thank you for your purchase!</div>
+
+            {/* ─── Customer Capture Section ─── */}
             {(() => {
-              const cust = customers.find(c => c.id === showReceipt.customer);
+              const existingCust = customers.find(c => c.id === showReceipt.customer);
+              // If a customer is already linked to the sale (rare in this new flow), show their details
+              const cust = existingCust || (receiptCustSaved && receiptCustEmail ? { name: receiptCustName, phone: receiptCustPhone, email: receiptCustEmail } : null);
               const params = { type: "sale", data: showReceipt, customer: cust };
+
+              const saveCustomer = () => {
+                if (!receiptCustName.trim() && !receiptCustPhone.trim() && !receiptCustEmail.trim()) {
+                  setEmailStatus({ type: "error", message: "Enter at least a name, phone, or email." });
+                  return;
+                }
+                // Check if a customer with this phone or email already exists
+                const phone = receiptCustPhone.trim();
+                const email = receiptCustEmail.trim().toLowerCase();
+                let existing = null;
+                if (phone) existing = customers.find(c => c.phone && c.phone.replace(/\s/g, "") === phone.replace(/\s/g, ""));
+                if (!existing && email) existing = customers.find(c => c.email && c.email.toLowerCase() === email);
+
+                if (existing) {
+                  // Update existing record with any new info
+                  const updated = { ...existing, name: receiptCustName.trim() || existing.name, phone: receiptCustPhone.trim() || existing.phone, email: receiptCustEmail.trim() || existing.email };
+                  setCustomers(prev => prev.map(c => c.id === existing.id ? updated : c));
+                  setSales(prev => prev.map(s => s.id === showReceipt.id ? { ...s, customer: existing.id } : s));
+                  setShowReceipt(prev => ({ ...prev, customer: existing.id }));
+                } else {
+                  // Create new customer
+                  const newCust = { id: uid(), name: receiptCustName.trim(), phone: receiptCustPhone.trim(), email: receiptCustEmail.trim(), notes: "", joined: today() };
+                  setCustomers(prev => [...prev, newCust]);
+                  setSales(prev => prev.map(s => s.id === showReceipt.id ? { ...s, customer: newCust.id } : s));
+                  setShowReceipt(prev => ({ ...prev, customer: newCust.id }));
+                }
+                setReceiptCustSaved(true);
+                setEmailStatus({ type: "success", message: "✅ Customer saved" });
+              };
+
+              // Auto-lookup when typing phone in receipt modal
+              const handlePhoneInput = (val) => {
+                setReceiptCustPhone(val);
+                if (val.replace(/\s/g, "").length >= 6) {
+                  const found = customers.find(c => c.phone && c.phone.replace(/\s/g, "") === val.replace(/\s/g, ""));
+                  if (found) {
+                    setReceiptCustName(found.name || "");
+                    setReceiptCustEmail(found.email || "");
+                    setReceiptCustSaved(false);
+                  }
+                }
+              };
+
               const handleBrevoSend = async () => {
-                if (!cust?.email) { setEmailStatus({ type: "error", message: "Customer has no email on file." }); return; }
+                const target = cust;
+                if (!target?.email) { setEmailStatus({ type: "error", message: "Add customer email and save first." }); return; }
                 setEmailStatus({ type: "loading", message: "Sending…" });
-                const result = await sendReceiptEmail(params);
+                const result = await sendReceiptEmail({ type: "sale", data: showReceipt, customer: target });
                 setEmailStatus(result.success ? { type: "success", message: `✅ ${result.message}` } : { type: "error", message: `❌ ${result.message}` });
               };
+
               return (
                 <>
+                  {!cust ? (
+                    <div style={{ background: "#eef2ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 14, marginTop: 16 }}>
+                      <div style={{ fontSize: 11, color: "#2563eb", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>👤 Send Receipt to Customer (Optional)</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+                        <Input label="Phone Number" placeholder="07778 123456" value={receiptCustPhone} onChange={e => handlePhoneInput(e.target.value)} style={{ marginBottom: 8 }} />
+                        <Input label="Name" placeholder="Customer name" value={receiptCustName} onChange={e => setReceiptCustName(e.target.value)} style={{ marginBottom: 8 }} />
+                      </div>
+                      <Input label="Email" placeholder="customer@example.com" type="email" value={receiptCustEmail} onChange={e => setReceiptCustEmail(e.target.value)} style={{ marginBottom: 8 }} />
+                      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8 }}>💡 Details auto-fill if customer is already in the database (matched by phone). All info is saved for future visits.</div>
+                      <Btn variant="primary" onClick={saveCustomer} style={{ width: "100%" }}>💾 Save Customer Details</Btn>
+                    </div>
+                  ) : (
+                    <div style={{ background: "#10b98115", border: "1px solid #10b981", borderRadius: 10, padding: 12, marginTop: 16, fontSize: 12, color: "#10b981" }}>
+                      ✅ <strong>Customer:</strong> {cust.name || "—"}{cust.phone ? ` · ${cust.phone}` : ""}{cust.email ? ` · ${cust.email}` : ""}
+                    </div>
+                  )}
+
                   {emailStatus && (
-                    <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, textAlign: "center", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+                    <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 10, textAlign: "center", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
                       background: emailStatus.type === "success" ? "#10b98115" : emailStatus.type === "error" ? "#ef444415" : "#2563eb15",
                       color: emailStatus.type === "success" ? "#10b981" : emailStatus.type === "error" ? "#ef4444" : "#2563eb",
                       border: `1px solid ${emailStatus.type === "success" ? "#10b981" : emailStatus.type === "error" ? "#ef4444" : "#2563eb"}` }}>
                       {emailStatus.message}
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 18, flexWrap: "wrap", fontFamily: "'DM Sans', sans-serif" }}>
+                  <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 14, flexWrap: "wrap", fontFamily: "'DM Sans', sans-serif" }}>
                     <Btn variant="primary" onClick={() => printReceipt(params)}>🖨 Print / PDF</Btn>
-                    <Btn variant="success" onClick={() => sendWhatsApp(params, cust?.phone)}>💬 WhatsApp</Btn>
+                    {cust?.phone && <Btn variant="success" onClick={() => sendWhatsApp(params, cust?.phone)}>💬 WhatsApp</Btn>}
                     {cust?.email && <Btn variant="warning" onClick={handleBrevoSend} disabled={emailStatus?.type === "loading"}>📧 Email Receipt</Btn>}
                   </div>
                   {cust?.email && <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center", marginTop: 6 }}>📧 Will email to: <strong>{cust.email}</strong></div>}
-                  {!cust?.email && <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center", marginTop: 6 }}>💡 Add the customer's email to send a digital receipt</div>}
                 </>
               );
             })()}
