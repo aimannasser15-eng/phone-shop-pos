@@ -310,6 +310,78 @@ const downloadReceiptFile = (params) => {
   URL.revokeObjectURL(url);
 };
 
+// ─── Brevo Email Sender ───────────────────────────────────────────
+// Sends a receipt via Brevo's transactional email API
+// Returns { success: boolean, message: string }
+const BREVO_API_KEY = import.meta.env.VITE_BREVO_API_KEY || "";
+const BREVO_FROM_EMAIL = "receipts@signaturephones.uk";
+const BREVO_FROM_NAME = SHOP.name;
+
+const sendReceiptEmail = async ({ type, data, customer }) => {
+  if (!BREVO_API_KEY) {
+    return { success: false, message: "Email is not set up yet — add your Brevo API key to .env.local and redeploy." };
+  }
+  if (!customer?.email) {
+    return { success: false, message: "Customer has no email address on file." };
+  }
+  const html = buildReceiptHTML({ type, data, customer });
+  const isSale = type === "sale";
+  const subject = isSale
+    ? `Your receipt from ${SHOP.name} (#${data.id.toUpperCase()})`
+    : `Your repair ticket from ${SHOP.name} (#${data.id.toUpperCase()})`;
+  try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "accept": "application/json",
+        "api-key": BREVO_API_KEY,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        sender: { name: BREVO_FROM_NAME, email: BREVO_FROM_EMAIL },
+        to: [{ email: customer.email, name: customer.name || customer.email }],
+        subject,
+        htmlContent: html,
+        tags: [isSale ? "receipt" : "repair-ticket"],
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      return { success: false, message: err.message || `Failed (status ${response.status})` };
+    }
+    return { success: true, message: `Sent to ${customer.email}` };
+  } catch (err) {
+    return { success: false, message: `Network error: ${err.message}` };
+  }
+};
+
+// ─── Deposit Receipt Email ───────────────────────────────────────
+const sendDepositReceiptEmail = async (deposit, customer) => {
+  if (!BREVO_API_KEY) return { success: false, message: "Email is not set up yet — add your Brevo API key to .env.local and redeploy." };
+  if (!customer?.email) return { success: false, message: "Customer has no email address on file." };
+  const html = buildDepositReceiptHTML(deposit, customer);
+  try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: { "accept": "application/json", "api-key": BREVO_API_KEY, "content-type": "application/json" },
+      body: JSON.stringify({
+        sender: { name: BREVO_FROM_NAME, email: BREVO_FROM_EMAIL },
+        to: [{ email: customer.email, name: customer.name || customer.email }],
+        subject: `Your deposit receipt from ${SHOP.name} — Balance £${(deposit.agreedPrice - deposit.depositAmount).toFixed(2)} due`,
+        htmlContent: html,
+        tags: ["deposit-receipt"],
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      return { success: false, message: err.message || `Failed (status ${response.status})` };
+    }
+    return { success: true, message: `Sent to ${customer.email}` };
+  } catch (err) {
+    return { success: false, message: `Network error: ${err.message}` };
+  }
+};
+
 // ─── Deposit Receipt Builder ───────────────────────────────────────
 const buildDepositReceiptHTML = (deposit, customer) => {
   const items = deposit.items && deposit.items.length > 0 ? deposit.items : (deposit.productId ? [{ name: deposit.productName, imei: deposit.imei, color: deposit.color, storage: deposit.storage, grade: deposit.grade, price: deposit.agreedPrice }] : []);
@@ -564,6 +636,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
   const [search, setSearch] = useState("");
   const [selCustomer, setSelCustomer] = useState("");
   const [showReceipt, setShowReceipt] = useState(null);
+  const [emailStatus, setEmailStatus] = useState(null); // { type: "loading"|"success"|"error", message: "..." }
   const [discount, setDiscount] = useState(0);
   const [payMethod, setPayMethod] = useState("cash"); // cash, card, mix
   const [cashAmount, setCashAmount] = useState("");
@@ -888,7 +961,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
       </Modal>
 
       {/* Receipt */}
-      <Modal open={!!showReceipt} onClose={() => setShowReceipt(null)} title="Receipt">
+      <Modal open={!!showReceipt} onClose={() => { setShowReceipt(null); setEmailStatus(null); }} title="Receipt">
         {showReceipt && (
           <div style={{ fontFamily: "'Courier New', monospace", color: "#374151", fontSize: 13 }}>
             <div style={{ textAlign: "center", marginBottom: 14 }}>
@@ -917,12 +990,30 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
             {(() => {
               const cust = customers.find(c => c.id === showReceipt.customer);
               const params = { type: "sale", data: showReceipt, customer: cust };
+              const handleBrevoSend = async () => {
+                if (!cust?.email) { setEmailStatus({ type: "error", message: "Customer has no email on file." }); return; }
+                setEmailStatus({ type: "loading", message: "Sending…" });
+                const result = await sendReceiptEmail(params);
+                setEmailStatus(result.success ? { type: "success", message: `✅ ${result.message}` } : { type: "error", message: `❌ ${result.message}` });
+              };
               return (
-                <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 18, flexWrap: "wrap", fontFamily: "'DM Sans', sans-serif" }}>
-                  <Btn variant="primary" onClick={() => printReceipt(params)}>🖨 Print / PDF</Btn>
-                  <Btn variant="success" onClick={() => sendWhatsApp(params, cust?.phone)}>💬 WhatsApp</Btn>
-                  <Btn variant="warning" onClick={() => sendEmail(params, cust?.email)}>✉ Email</Btn>
-                </div>
+                <>
+                  {emailStatus && (
+                    <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, textAlign: "center", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+                      background: emailStatus.type === "success" ? "#10b98115" : emailStatus.type === "error" ? "#ef444415" : "#2563eb15",
+                      color: emailStatus.type === "success" ? "#10b981" : emailStatus.type === "error" ? "#ef4444" : "#2563eb",
+                      border: `1px solid ${emailStatus.type === "success" ? "#10b981" : emailStatus.type === "error" ? "#ef4444" : "#2563eb"}` }}>
+                      {emailStatus.message}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 18, flexWrap: "wrap", fontFamily: "'DM Sans', sans-serif" }}>
+                    <Btn variant="primary" onClick={() => printReceipt(params)}>🖨 Print / PDF</Btn>
+                    <Btn variant="success" onClick={() => sendWhatsApp(params, cust?.phone)}>💬 WhatsApp</Btn>
+                    {cust?.email && <Btn variant="warning" onClick={handleBrevoSend} disabled={emailStatus?.type === "loading"}>📧 Email Receipt</Btn>}
+                  </div>
+                  {cust?.email && <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center", marginTop: 6 }}>📧 Will email to: <strong>{cust.email}</strong></div>}
+                  {!cust?.email && <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center", marginTop: 6 }}>💡 Add the customer's email to send a digital receipt</div>}
+                </>
               );
             })()}
           </div>
@@ -1706,6 +1797,7 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers, ac
 
   // ─── Partial Refund System ──────────────────────────
   const [refundModal, setRefundModal] = useState(null); // sale being refunded
+  const [emailStatus, setEmailStatus] = useState(null);
   const [refundAmount, setRefundAmount] = useState("");
   const [refundMethod, setRefundMethod] = useState("cash");
   const [refundItems, setRefundItems] = useState([]); // unit IDs to return to stock
@@ -1884,12 +1976,24 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers, ac
               )}
 
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18, flexWrap: "wrap" }}>
-                <Btn variant="ghost" onClick={() => setSelected(null)}>Close</Btn>
+                <Btn variant="ghost" onClick={() => { setSelected(null); setEmailStatus(null); }}>Close</Btn>
                 <Btn variant="primary" onClick={() => printReceipt({ type: "sale", data: selected, customer: cust })}>🖨 Print / PDF</Btn>
                 <Btn variant="success" onClick={() => sendWhatsApp({ type: "sale", data: selected, customer: cust }, cust?.phone)}>💬 WhatsApp</Btn>
-                <Btn variant="warning" onClick={() => sendEmail({ type: "sale", data: selected, customer: cust }, cust?.email)}>✉ Email</Btn>
+                {cust?.email && <Btn variant="warning" onClick={async () => {
+                  setEmailStatus({ type: "loading", message: "Sending…" });
+                  const result = await sendReceiptEmail({ type: "sale", data: selected, customer: cust });
+                  setEmailStatus(result.success ? { type: "success", message: `✅ ${result.message}` } : { type: "error", message: `❌ ${result.message}` });
+                }} disabled={emailStatus?.type === "loading"}>📧 Email Receipt</Btn>}
                 {!selected.refunded && <Btn variant="danger" onClick={() => openRefund(selected)}>↩ Refund</Btn>}
               </div>
+              {emailStatus && (
+                <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, fontSize: 12, textAlign: "center", fontFamily: "'DM Sans', sans-serif", fontWeight: 600,
+                  background: emailStatus.type === "success" ? "#10b98115" : emailStatus.type === "error" ? "#ef444415" : "#2563eb15",
+                  color: emailStatus.type === "success" ? "#10b981" : emailStatus.type === "error" ? "#ef4444" : "#2563eb",
+                  border: `1px solid ${emailStatus.type === "success" ? "#10b981" : emailStatus.type === "error" ? "#ef4444" : "#2563eb"}` }}>
+                  {emailStatus.message}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -2670,6 +2774,7 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [productPickerSearch, setProductPickerSearch] = useState("");
   const [showReceipt, setShowReceipt] = useState(null); // deposit to show receipt for
+  const [emailStatus, setEmailStatus] = useState(null);
 
   // Auto-compute default deadline (30 days from today)
   const computeDeadline = (fromDate, days = 30) => {
@@ -3325,11 +3430,23 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
                 </div>
                 <div style={{ fontSize: 11, color: "#6b7280", textAlign: "center", marginTop: 10 }}>Thank you for your business — please bring this receipt when collecting your items.</div>
               </div>
+              {emailStatus && (
+                <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, fontSize: 12, textAlign: "center", fontFamily: "'DM Sans', sans-serif", fontWeight: 600,
+                  background: emailStatus.type === "success" ? "#10b98115" : emailStatus.type === "error" ? "#ef444415" : "#2563eb15",
+                  color: emailStatus.type === "success" ? "#10b981" : emailStatus.type === "error" ? "#ef4444" : "#2563eb",
+                  border: `1px solid ${emailStatus.type === "success" ? "#10b981" : emailStatus.type === "error" ? "#ef4444" : "#2563eb"}` }}>
+                  {emailStatus.message}
+                </div>
+              )}
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14, flexWrap: "wrap" }}>
-                <Btn variant="ghost" onClick={() => setShowReceipt(null)}>Close</Btn>
+                <Btn variant="ghost" onClick={() => { setShowReceipt(null); setEmailStatus(null); }}>Close</Btn>
                 <Btn variant="primary" onClick={() => printDepositReceipt(showReceipt, cust)}>🖨 Print / PDF</Btn>
                 <Btn variant="success" onClick={() => shareDepositReceipt(showReceipt, cust, "whatsapp")}>💬 WhatsApp</Btn>
-                <Btn variant="warning" onClick={() => shareDepositReceipt(showReceipt, cust, "email")}>✉ Email</Btn>
+                {cust?.email && <Btn variant="warning" onClick={async () => {
+                  setEmailStatus({ type: "loading", message: "Sending…" });
+                  const result = await sendDepositReceiptEmail(showReceipt, cust);
+                  setEmailStatus(result.success ? { type: "success", message: `✅ ${result.message}` } : { type: "error", message: `❌ ${result.message}` });
+                }} disabled={emailStatus?.type === "loading"}>📧 Email Receipt</Btn>}
               </div>
             </div>
           );
