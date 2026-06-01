@@ -622,7 +622,7 @@ const StatCard = ({ label, value, sub, color = "#2563eb" }) => (
 
 // ─── POS / Checkout ─────────────────────────────────────────────────
 
-const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff }) => {
+const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomers, activeStaff }) => {
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState("");
   const [selCustomer, setSelCustomer] = useState("");
@@ -4340,7 +4340,7 @@ function MainApp({ user }) {
           <div style={{ fontSize: 13, color: "#9ca3af" }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
         </header>
         <main style={{ flex: 1, padding: 20, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          {tab === "pos" && <POSTab products={products} setProducts={setProducts} sales={sales} setSales={setSales} customers={customers} activeStaff={activeStaff} />}
+          {tab === "pos" && <POSTab products={products} setProducts={setProducts} sales={sales} setSales={setSales} customers={customers} setCustomers={setCustomers} activeStaff={activeStaff} />}
           {tab === "inventory" && <InventoryTab products={products} setProducts={setProducts} deletionLogs={deletionLogs} setDeletionLogs={setDeletionLogs} user={user} activeStaff={activeStaff} />}
           {tab === "sales" && <SalesHistoryTab sales={sales} setSales={setSales} products={products} setProducts={setProducts} customers={customers} activeStaff={activeStaff} />}
           {tab === "customers" && <CustomersTab customers={customers} setCustomers={setCustomers} sales={sales} />}
