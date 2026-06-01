@@ -322,9 +322,27 @@ const sendReceiptEmail = async ({ type, data, customer }) => {
   }
   const html = buildReceiptHTML({ type, data, customer });
   const isSale = type === "sale";
-  const subject = isSale
-    ? `Your receipt from ${SHOP.name} (#${data.id.toUpperCase()})`
-    : `Your repair ticket from ${SHOP.name} (#${data.id.toUpperCase()})`;
+  let subject;
+  if (isSale) {
+    subject = `Your receipt from ${SHOP.name} (#${data.id.toUpperCase()})`;
+  } else {
+    // Repair — tailor subject to current status
+    const id = data.id.toUpperCase();
+    switch (data.status) {
+      case "Ready for Pickup":
+        subject = `✅ Your device is ready to collect — ${SHOP.name} (#${id})`; break;
+      case "Completed":
+        subject = `Your repair receipt from ${SHOP.name} (#${id})`; break;
+      case "Waiting for Parts":
+        subject = `Repair update — Waiting for parts — ${SHOP.name} (#${id})`; break;
+      case "In Repair":
+      case "Diagnosing":
+      case "Testing":
+        subject = `Repair update — ${data.status} — ${SHOP.name} (#${id})`; break;
+      default:
+        subject = `Your repair ticket from ${SHOP.name} (#${id})`;
+    }
+  }
   try {
     const response = await fetch(EMAIL_API_URL, {
       method: "POST",
@@ -2183,6 +2201,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
   const [editing, setEditing] = useState(null);
   const [statusFilter, setStatusFilter] = useState("All");
   const [repairSearch, setRepairSearch] = useState("");
+  const [emailStatus, setEmailStatus] = useState(null); // { repairId, type, message }
   const blank = { customer: "", customerName: "", customerPhone: "", customerEmail: "", _autoFilled: false, device: "", imei: "", issue: "", status: "Received", cost: "", payment: "cash", cashPaid: "", notes: "", partsUsed: [], partsDeducted: false };
   const [form, setForm] = useState(blank);
 
@@ -2355,11 +2374,27 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
                   style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #6b7280", background: "#6b728015", color: "#374151", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>✏️ Edit</button>
                 <button onClick={e => { e.stopPropagation(); printReceipt({ type: "repair", data: r, customer: cust }); }}
                   style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #2563eb", background: "#2563eb15", color: "#2563eb", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🖨 Print Receipt</button>
-                <button onClick={e => { e.stopPropagation(); sendWhatsApp({ type: "repair", data: r, customer: cust }, cust?.phone); }}
-                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #10b981", background: "#05966915", color: "#10b981", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>💬 WhatsApp</button>
-                <button onClick={e => { e.stopPropagation(); sendEmail({ type: "repair", data: r, customer: cust }, cust?.email); }}
-                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #f59e0b", background: "#d9770615", color: "#f59e0b", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>✉ Email</button>
+                {cust?.phone && <button onClick={e => { e.stopPropagation(); sendWhatsApp({ type: "repair", data: r, customer: cust }, cust?.phone); }}
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #10b981", background: "#05966915", color: "#10b981", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>💬 WhatsApp</button>}
+                {cust?.email && <button onClick={async e => {
+                  e.stopPropagation();
+                  setEmailStatus({ repairId: r.id, type: "loading", message: "Sending…" });
+                  const result = await sendReceiptEmail({ type: "repair", data: r, customer: cust });
+                  setEmailStatus({ repairId: r.id, type: result.success ? "success" : "error", message: result.success ? `✅ ${result.message}` : `❌ ${result.message}` });
+                  setTimeout(() => setEmailStatus(prev => prev?.repairId === r.id ? null : prev), 4000);
+                }}
+                  disabled={emailStatus?.repairId === r.id && emailStatus?.type === "loading"}
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #f59e0b", background: "#d9770615", color: "#f59e0b", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600, opacity: emailStatus?.repairId === r.id && emailStatus?.type === "loading" ? 0.5 : 1 }}>📧 Email Receipt</button>}
+                {!cust?.email && <span style={{ fontSize: 11, color: "#9ca3af", padding: "5px 8px" }}>💡 Add email to send digitally</span>}
               </div>
+              {emailStatus?.repairId === r.id && (
+                <div style={{ marginTop: 8, padding: "6px 10px", borderRadius: 6, fontSize: 12, textAlign: "center", fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+                  background: emailStatus.type === "success" ? "#10b98115" : emailStatus.type === "error" ? "#ef444415" : "#2563eb15",
+                  color: emailStatus.type === "success" ? "#10b981" : emailStatus.type === "error" ? "#ef4444" : "#2563eb",
+                  border: `1px solid ${emailStatus.type === "success" ? "#10b981" : emailStatus.type === "error" ? "#ef4444" : "#2563eb"}` }}>
+                  {emailStatus.message}
+                </div>
+              )}
             </Card>
           );
         })}
