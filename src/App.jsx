@@ -365,6 +365,55 @@ const sendReceiptEmail = async ({ type, data, customer }) => {
   }
 };
 
+// ─── SMS Sender (UK) ────────────────────────────────────────────
+const sendSMS = async ({ phone, content }) => {
+  if (!phone) return { success: false, message: "No phone number." };
+  if (!content || !content.trim()) return { success: false, message: "SMS content is empty." };
+  if (content.length > 612) return { success: false, message: "SMS too long (max 612 chars / 4 credits)." };
+  try {
+    const response = await fetch(EMAIL_API_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ smsTo: phone, smsContent: content }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return { success: false, message: result.error || `Failed (status ${response.status})` };
+    }
+    return { success: true, message: `Sent to ${phone}`, remainingCredits: result.remainingCredits };
+  } catch (err) {
+    return { success: false, message: `Network error: ${err.message}` };
+  }
+};
+
+// SMS templates for repair status updates — short, friendly, under 160 chars
+const buildRepairSMS = (repair, customer, status) => {
+  const name = customer?.name ? customer.name.split(" ")[0] : "there"; // First name only
+  const device = repair.device || "device";
+  const ref = repair.id.toUpperCase().slice(-6); // Last 6 chars of repair ID for brevity
+  const shopName = "SP Phones";
+  const shopPhone = "07778 555546";
+  const shopAddr = "12 Dovecot Place, Liverpool";
+  switch (status) {
+    case "Received":
+      return `Hi ${name}, ${shopName} has received your ${device} for repair (Ref: ${ref}). We'll text you when ready. ${shopPhone}`;
+    case "Diagnosing":
+      return `Hi ${name}, we're diagnosing your ${device} (Ref: ${ref}). We'll update you shortly. ${shopName}`;
+    case "Waiting for Parts":
+      return `Hi ${name}, your ${device} repair (Ref: ${ref}) is awaiting parts. ETA 2-3 days. ${shopName}`;
+    case "In Repair":
+      return `Hi ${name}, repair work has started on your ${device} (Ref: ${ref}). ${shopName}`;
+    case "Testing":
+      return `Hi ${name}, your ${device} (Ref: ${ref}) is being tested. Almost ready! ${shopName}`;
+    case "Ready for Pickup":
+      return `Hi ${name}, your ${device} (Ref: ${ref}) is READY to collect! ${shopAddr}. ${shopName}`;
+    case "Completed":
+      return `Hi ${name}, thanks for choosing ${shopName}! 90-day warranty applies on parts/labour. Any issues call ${shopPhone}.`;
+    default:
+      return `Hi ${name}, an update on your ${device} repair (Ref: ${ref}): status is now "${status}". ${shopName}`;
+  }
+};
+
 // ─── Deposit Receipt Email ───────────────────────────────────────
 const sendDepositReceiptEmail = async (deposit, customer) => {
   if (!customer?.email) return { success: false, message: "Customer has no email address on file." };
@@ -2202,6 +2251,14 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
   const [statusFilter, setStatusFilter] = useState("All");
   const [repairSearch, setRepairSearch] = useState("");
   const [emailStatus, setEmailStatus] = useState(null); // { repairId, type, message }
+  const [smsModal, setSmsModal] = useState(null); // { repair, customer, content, status }
+  const [smsStatus, setSmsStatus] = useState(null); // { type, message }
+  const [autoSMSStatuses, setAutoSMSStatuses] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("pos-auto-sms-v1") || '["Ready for Pickup"]'); }
+    catch { return ["Ready for Pickup"]; }
+  });
+  const [showSMSSettings, setShowSMSSettings] = useState(false);
+  useEffect(() => { localStorage.setItem("pos-auto-sms-v1", JSON.stringify(autoSMSStatuses)); }, [autoSMSStatuses]);
   const blank = { customer: "", customerName: "", customerPhone: "", customerEmail: "", _autoFilled: false, device: "", imei: "", issue: "", status: "Received", cost: "", payment: "cash", cashPaid: "", notes: "", partsUsed: [], partsDeducted: false };
   const [form, setForm] = useState(blank);
 
@@ -2306,7 +2363,27 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
     if (partsPickerSearch && !p.name.toLowerCase().includes(partsPickerSearch.toLowerCase()) && !(p.compatibleModels || "").toLowerCase().includes(partsPickerSearch.toLowerCase())) return false;
     return true;
   });
-  const updateStatus = (id, status) => setRepairs(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+  const updateStatus = async (id, status) => {
+    const repair = repairs.find(r => r.id === id);
+    if (!repair) return;
+    const oldStatus = repair.status;
+    setRepairs(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+    // Auto-SMS if enabled for this status and the status actually changed
+    if (status !== oldStatus && autoSMSStatuses.includes(status)) {
+      const cust = customers.find(c => c.id === repair.customer);
+      if (cust?.phone) {
+        const updatedRepair = { ...repair, status };
+        const content = buildRepairSMS(updatedRepair, cust, status);
+        const result = await sendSMS({ phone: cust.phone, content });
+        if (result.success) {
+          // Log SMS in repair history
+          setRepairs(prev => prev.map(r => r.id === id ? { ...r, smsHistory: [...(r.smsHistory || []), { date: new Date().toISOString(), status, content, auto: true }] } : r));
+        } else {
+          alert(`Auto-SMS failed: ${result.message}`);
+        }
+      }
+    }
+  };
   const filtered = repairs.filter(r => {
     if (statusFilter !== "All" && r.status !== statusFilter) return false;
     if (!repairSearch.trim()) return true;
@@ -2330,6 +2407,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
       <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "flex-end" }}>
         <div style={{ flex: 1 }}><Input placeholder="Search by customer, device, IMEI, or fault…" value={repairSearch} onChange={e => setRepairSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
         <Select options={["All", ...REPAIR_STATUSES]} value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: 200, marginBottom: 0 }} />
+        <Btn variant="ghost" onClick={() => setShowSMSSettings(true)}>📱 SMS Settings</Btn>
         <Btn onClick={openAdd}>+ New Repair</Btn>
       </div>
       <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -2376,6 +2454,12 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
                   style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #2563eb", background: "#2563eb15", color: "#2563eb", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🖨 Print Receipt</button>
                 {cust?.phone && <button onClick={e => { e.stopPropagation(); sendWhatsApp({ type: "repair", data: r, customer: cust }, cust?.phone); }}
                   style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #10b981", background: "#05966915", color: "#10b981", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>💬 WhatsApp</button>}
+                {cust?.phone && <button onClick={e => {
+                  e.stopPropagation();
+                  setSmsModal({ repair: r, customer: cust, content: buildRepairSMS(r, cust, r.status), status: r.status });
+                  setSmsStatus(null);
+                }}
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #8b5cf6", background: "#8b5cf615", color: "#8b5cf6", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>📱 SMS</button>}
                 {cust?.email && <button onClick={async e => {
                   e.stopPropagation();
                   setEmailStatus({ repairId: r.id, type: "loading", message: "Sending…" });
@@ -2524,6 +2608,112 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
               );
             })
           )}
+        </div>
+      </Modal>
+
+      {/* ─── SMS Send Modal ─── */}
+      <Modal open={!!smsModal} onClose={() => { setSmsModal(null); setSmsStatus(null); }} title="📱 Send SMS">
+        {smsModal && (() => {
+          const charCount = smsModal.content.length;
+          const credits = Math.ceil(charCount / 160) || 1;
+          const cost = (credits * 0.027).toFixed(2);
+          const overLimit = charCount > 612;
+          return (
+            <div>
+              <div style={{ background: "#8b5cf615", border: "1px solid #8b5cf640", borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: "#7c3aed", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>📨 Sending to</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937" }}>{smsModal.customer.name || "—"}</div>
+                <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "monospace" }}>{smsModal.customer.phone}</div>
+              </div>
+
+              {/* Quick template picker */}
+              <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Quick Templates</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                {REPAIR_STATUSES.map(s => (
+                  <button key={s} onClick={() => setSmsModal({ ...smsModal, content: buildRepairSMS(smsModal.repair, smsModal.customer, s), status: s })}
+                    style={{ fontSize: 11, padding: "4px 10px", borderRadius: 12, border: `1px solid ${smsModal.status === s ? "#8b5cf6" : "#d4d8e0"}`, background: smsModal.status === s ? "#8b5cf615" : "#fff", color: smsModal.status === s ? "#8b5cf6" : "#6b7280", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Message (editable)</div>
+              <textarea value={smsModal.content} onChange={e => setSmsModal({ ...smsModal, content: e.target.value })}
+                style={{ width: "100%", minHeight: 100, padding: 10, borderRadius: 8, border: `1px solid ${overLimit ? "#ef4444" : "#d4d8e0"}`, fontSize: 13, fontFamily: "'DM Sans', sans-serif", color: "#1f2937", boxSizing: "border-box", resize: "vertical" }} />
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, fontSize: 11, color: overLimit ? "#ef4444" : "#6b7280" }}>
+                <span>{charCount} chars · {credits} SMS credit{credits > 1 ? "s" : ""} · ~£{cost} {overLimit && "⚠ Over 612 char limit"}</span>
+              </div>
+
+              {smsStatus && (
+                <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, textAlign: "center", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+                  background: smsStatus.type === "success" ? "#10b98115" : smsStatus.type === "error" ? "#ef444415" : "#2563eb15",
+                  color: smsStatus.type === "success" ? "#10b981" : smsStatus.type === "error" ? "#ef4444" : "#2563eb",
+                  border: `1px solid ${smsStatus.type === "success" ? "#10b981" : smsStatus.type === "error" ? "#ef4444" : "#2563eb"}` }}>
+                  {smsStatus.message}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+                <Btn variant="ghost" onClick={() => { setSmsModal(null); setSmsStatus(null); }}>Cancel</Btn>
+                <Btn variant="primary" disabled={overLimit || smsStatus?.type === "loading"} onClick={async () => {
+                  setSmsStatus({ type: "loading", message: "Sending SMS…" });
+                  const result = await sendSMS({ phone: smsModal.customer.phone, content: smsModal.content });
+                  if (result.success) {
+                    setSmsStatus({ type: "success", message: `✅ ${result.message}${result.remainingCredits ? ` · ${result.remainingCredits} credits left` : ""}` });
+                    // Log to repair history
+                    setRepairs(prev => prev.map(r => r.id === smsModal.repair.id ? { ...r, smsHistory: [...(r.smsHistory || []), { date: new Date().toISOString(), status: smsModal.status, content: smsModal.content, auto: false, staff: activeStaff?.name }] } : r));
+                    setTimeout(() => { setSmsModal(null); setSmsStatus(null); }, 1800);
+                  } else {
+                    setSmsStatus({ type: "error", message: `❌ ${result.message}` });
+                  }
+                }}>📱 Send SMS</Btn>
+              </div>
+
+              {/* SMS History for this repair */}
+              {smsModal.repair.smsHistory && smsModal.repair.smsHistory.length > 0 && (
+                <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid #e5e7eb" }}>
+                  <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>SMS History</div>
+                  {smsModal.repair.smsHistory.slice().reverse().map((h, i) => (
+                    <div key={i} style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8, padding: 8, marginBottom: 6 }}>
+                      <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>{new Date(h.date).toLocaleString("en-GB")} · {h.status} {h.auto ? "· auto" : h.staff ? `· by ${h.staff}` : ""}</div>
+                      <div style={{ fontSize: 12, color: "#1f2937" }}>{h.content}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* ─── SMS Settings Modal ─── */}
+      <Modal open={showSMSSettings} onClose={() => setShowSMSSettings(false)} title="📱 SMS Settings">
+        <div style={{ background: "#eff6ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 14, marginBottom: 16, fontSize: 13, color: "#1e40af" }}>
+          💡 Choose which repair status changes should automatically send an SMS to the customer. Each SMS costs ~3p.
+        </div>
+        <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Auto-send SMS when status changes to:</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {REPAIR_STATUSES.map(s => {
+            const enabled = autoSMSStatuses.includes(s);
+            return (
+              <label key={s} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: enabled ? "#8b5cf615" : "#f9fafb", border: `1px solid ${enabled ? "#8b5cf6" : "#e5e7eb"}`, borderRadius: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={enabled} onChange={() => {
+                  setAutoSMSStatuses(prev => enabled ? prev.filter(x => x !== s) : [...prev, s]);
+                }} style={{ width: 18, height: 18, accentColor: "#8b5cf6" }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937" }}>{s}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{buildRepairSMS({ device: "iPhone 13", id: "abc123" }, { name: "John" }, s)}</div>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 16, padding: 12, background: "#fef3c7", borderLeft: "3px solid #f59e0b", borderRadius: 6, fontSize: 12, color: "#92400e" }}>
+          ⚠️ <strong>Important:</strong> Customer must have a phone number on file. Auto-SMS only sends when status actually changes (not on every save).
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+          <Btn variant="primary" onClick={() => setShowSMSSettings(false)}>Done</Btn>
         </div>
       </Modal>
     </div>
