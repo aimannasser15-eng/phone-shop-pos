@@ -985,36 +985,42 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, activeStaff
             {(() => {
               const existingCust = customers.find(c => c.id === showReceipt.customer);
               // If a customer is already linked to the sale (rare in this new flow), show their details
-              const cust = existingCust || (receiptCustSaved && receiptCustEmail ? { name: receiptCustName, phone: receiptCustPhone, email: receiptCustEmail } : null);
+              const cust = existingCust || (receiptCustSaved && (receiptCustName || receiptCustPhone || receiptCustEmail) ? { name: receiptCustName, phone: receiptCustPhone, email: receiptCustEmail } : null);
               const params = { type: "sale", data: showReceipt, customer: cust };
 
               const saveCustomer = () => {
-                if (!receiptCustName.trim() && !receiptCustPhone.trim() && !receiptCustEmail.trim()) {
-                  setEmailStatus({ type: "error", message: "Enter at least a name, phone, or email." });
+                const name = receiptCustName.trim();
+                const phone = receiptCustPhone.trim();
+                const email = receiptCustEmail.trim();
+                if (!name && !phone && !email) {
+                  alert("Please enter at least a name, phone number, or email.");
                   return;
                 }
-                // Check if a customer with this phone or email already exists
-                const phone = receiptCustPhone.trim();
-                const email = receiptCustEmail.trim().toLowerCase();
-                let existing = null;
-                if (phone) existing = customers.find(c => c.phone && c.phone.replace(/\s/g, "") === phone.replace(/\s/g, ""));
-                if (!existing && email) existing = customers.find(c => c.email && c.email.toLowerCase() === email);
+                try {
+                  // Check if a customer with this phone or email already exists
+                  let existing = null;
+                  if (phone) existing = customers.find(c => c.phone && c.phone.replace(/\s/g, "") === phone.replace(/\s/g, ""));
+                  if (!existing && email) existing = customers.find(c => c.email && c.email.toLowerCase() === email.toLowerCase());
 
-                if (existing) {
-                  // Update existing record with any new info
-                  const updated = { ...existing, name: receiptCustName.trim() || existing.name, phone: receiptCustPhone.trim() || existing.phone, email: receiptCustEmail.trim() || existing.email };
-                  setCustomers(prev => prev.map(c => c.id === existing.id ? updated : c));
-                  setSales(prev => prev.map(s => s.id === showReceipt.id ? { ...s, customer: existing.id } : s));
-                  setShowReceipt(prev => ({ ...prev, customer: existing.id }));
-                } else {
-                  // Create new customer
-                  const newCust = { id: uid(), name: receiptCustName.trim(), phone: receiptCustPhone.trim(), email: receiptCustEmail.trim(), notes: "", joined: today() };
-                  setCustomers(prev => [...prev, newCust]);
-                  setSales(prev => prev.map(s => s.id === showReceipt.id ? { ...s, customer: newCust.id } : s));
-                  setShowReceipt(prev => ({ ...prev, customer: newCust.id }));
+                  if (existing) {
+                    // Update existing record with any new info
+                    const updated = { ...existing, name: name || existing.name, phone: phone || existing.phone, email: email || existing.email };
+                    setCustomers(prev => prev.map(c => c.id === existing.id ? updated : c));
+                    setSales(prev => prev.map(s => s.id === showReceipt.id ? { ...s, customer: existing.id } : s));
+                    setShowReceipt(prev => ({ ...prev, customer: existing.id }));
+                  } else {
+                    // Create new customer
+                    const newCust = { id: uid(), name, phone, email, notes: "", joined: today() };
+                    setCustomers(prev => [...prev, newCust]);
+                    setSales(prev => prev.map(s => s.id === showReceipt.id ? { ...s, customer: newCust.id } : s));
+                    setShowReceipt(prev => ({ ...prev, customer: newCust.id }));
+                  }
+                  setReceiptCustSaved(true);
+                  setEmailStatus({ type: "success", message: "✅ Customer details saved" });
+                } catch (err) {
+                  alert("Error saving customer: " + err.message);
+                  setEmailStatus({ type: "error", message: "Failed to save: " + err.message });
                 }
-                setReceiptCustSaved(true);
-                setEmailStatus({ type: "success", message: "✅ Customer saved" });
               };
 
               // Auto-lookup when typing phone in receipt modal
