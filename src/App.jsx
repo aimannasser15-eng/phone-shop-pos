@@ -311,16 +311,12 @@ const downloadReceiptFile = (params) => {
 };
 
 // ─── Brevo Email Sender ───────────────────────────────────────────
-// Sends a receipt via Brevo's transactional email API
+// Sends emails via our Vercel serverless function
+// The Brevo API key lives ONLY on Vercel — never in the browser
 // Returns { success: boolean, message: string }
-const BREVO_API_KEY = import.meta.env.VITE_BREVO_API_KEY || "";
-const BREVO_FROM_EMAIL = "receipts@signaturephones.uk";
-const BREVO_FROM_NAME = SHOP.name;
+const EMAIL_API_URL = "https://sp-phones-api.vercel.app/api/send-email";
 
 const sendReceiptEmail = async ({ type, data, customer }) => {
-  if (!BREVO_API_KEY) {
-    return { success: false, message: "Email is not set up yet — add your Brevo API key to .env.local and redeploy." };
-  }
   if (!customer?.email) {
     return { success: false, message: "Customer has no email address on file." };
   }
@@ -330,24 +326,20 @@ const sendReceiptEmail = async ({ type, data, customer }) => {
     ? `Your receipt from ${SHOP.name} (#${data.id.toUpperCase()})`
     : `Your repair ticket from ${SHOP.name} (#${data.id.toUpperCase()})`;
   try {
-    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    const response = await fetch(EMAIL_API_URL, {
       method: "POST",
-      headers: {
-        "accept": "application/json",
-        "api-key": BREVO_API_KEY,
-        "content-type": "application/json",
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        sender: { name: BREVO_FROM_NAME, email: BREVO_FROM_EMAIL },
-        to: [{ email: customer.email, name: customer.name || customer.email }],
+        to: customer.email,
+        toName: customer.name || customer.email,
         subject,
         htmlContent: html,
-        tags: [isSale ? "receipt" : "repair-ticket"],
+        tag: isSale ? "receipt" : "repair-ticket",
       }),
     });
+    const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      return { success: false, message: err.message || `Failed (status ${response.status})` };
+      return { success: false, message: result.error || `Failed (status ${response.status})` };
     }
     return { success: true, message: `Sent to ${customer.email}` };
   } catch (err) {
@@ -357,24 +349,23 @@ const sendReceiptEmail = async ({ type, data, customer }) => {
 
 // ─── Deposit Receipt Email ───────────────────────────────────────
 const sendDepositReceiptEmail = async (deposit, customer) => {
-  if (!BREVO_API_KEY) return { success: false, message: "Email is not set up yet — add your Brevo API key to .env.local and redeploy." };
   if (!customer?.email) return { success: false, message: "Customer has no email address on file." };
   const html = buildDepositReceiptHTML(deposit, customer);
   try {
-    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    const response = await fetch(EMAIL_API_URL, {
       method: "POST",
-      headers: { "accept": "application/json", "api-key": BREVO_API_KEY, "content-type": "application/json" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        sender: { name: BREVO_FROM_NAME, email: BREVO_FROM_EMAIL },
-        to: [{ email: customer.email, name: customer.name || customer.email }],
+        to: customer.email,
+        toName: customer.name || customer.email,
         subject: `Your deposit receipt from ${SHOP.name} — Balance £${(deposit.agreedPrice - deposit.depositAmount).toFixed(2)} due`,
         htmlContent: html,
-        tags: ["deposit-receipt"],
+        tag: "deposit-receipt",
       }),
     });
+    const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      return { success: false, message: err.message || `Failed (status ${response.status})` };
+      return { success: false, message: result.error || `Failed (status ${response.status})` };
     }
     return { success: true, message: `Sent to ${customer.email}` };
   } catch (err) {
