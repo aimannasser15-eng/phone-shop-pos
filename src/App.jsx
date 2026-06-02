@@ -689,6 +689,21 @@ const StatCard = ({ label, value, sub, color = "#2563eb" }) => (
 
 // ─── POS / Checkout ─────────────────────────────────────────────────
 
+// Category icons for the POS category tiles
+const CATEGORY_ICONS = {
+  "Smartphones": "📱",
+  "Laptops": "💻",
+  "Tablets": "📲",
+  "Audio": "🎧",
+  "Accessories": "✨",
+  "Cases": "🛡️",
+  "Chargers": "🔌",
+  "Screen Protectors": "🪞",
+  "Cables": "🔗",
+  "Repair Parts": "🔧",
+  "Other": "📦",
+};
+
 const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomers, activeStaff }) => {
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState("");
@@ -705,6 +720,12 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomer
   const [imeiPicker, setImeiPicker] = useState(null);
   const [posCatFilter, setPosCatFilter] = useState("All");
   const [posBrandFilter, setPosBrandFilter] = useState("All");
+  const [posView, setPosView] = useState("categories"); // "categories" or "products"
+
+  // When search becomes active, switch to product list view (and back to categories if cleared)
+  useEffect(() => {
+    if (search.trim() && posView === "categories") setPosView("products");
+  }, [search]);
   const [scanInput, setScanInput] = useState("");
   const [scanMsg, setScanMsg] = useState("");
 
@@ -844,6 +865,11 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomer
     setPayMethod("cash");
     setCashAmount("");
     setSelCustomer("");
+    // Reset to category tiles view for next sale
+    setPosView("categories");
+    setPosCatFilter("All");
+    setPosBrandFilter("All");
+    setSearch("");
   };
 
   const pickerUnits = imeiPicker ? (imeiPicker.units || []).filter(u => u.status === "in_stock" && !cartUnitIds.has(u.id)) : [];
@@ -862,80 +888,105 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomer
         </div>
         <Input placeholder="Search by name, SKU, or IMEI/Serial…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 0 }} />
 
-        {/* Brand Filter Pills (Apple / Android / Other) — show only when there are serialized products */}
-        {products.some(p => p.serialized && getStock(p) > 0) && (
-          <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
-            <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>📱 Brand:</span>
-            {[["All", "All"], ["Apple", "🍎 Apple"], ["Android", "🤖 Android"], ["Other", "Other"]].map(([val, label]) => {
-              const count = val === "All" ? products.filter(p => p.serialized && getStock(p) > 0).length : products.filter(p => p.serialized && (p.brand || "Other") === val && getStock(p) > 0).length;
-              if (val !== "All" && count === 0) return null; // hide empty brand pills
-              const active = posBrandFilter === val;
-              return (
-                <button key={val} onClick={() => setPosBrandFilter(val)}
-                  style={{ padding: "5px 12px", borderRadius: 16, border: `1px solid ${active ? "#2563eb" : "#d4d8e0"}`, background: active ? "#2563eb15" : "#ffffff", color: active ? "#2563eb" : "#7070a0", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
-                  {label}{val !== "All" && <span style={{ marginLeft: 5, opacity: 0.6, fontSize: 11 }}>{count}</span>}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Category Filter Pills */}
-        <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
-          {["All", ...categoriesWithStock].map(cat => {
-            const count = cat === "All" ? products.filter(p => getStock(p) > 0).length : (products.filter(p => p.category === cat && getStock(p) > 0).length);
-            const active = posCatFilter === cat;
-            return (
-              <button key={cat} onClick={() => setPosCatFilter(cat)}
-                style={{ padding: "7px 14px", borderRadius: 20, border: `1px solid ${active ? "#3b82f6" : "#d4d8e0"}`, background: active ? "linear-gradient(135deg, #2563eb15, #3b82f622)" : "#ffffff", color: active ? "#2563eb" : "#7070a0", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s", whiteSpace: "nowrap" }}>
-                {cat} <span style={{ opacity: 0.6, marginLeft: 4 }}>{count}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div style={{ flex: 1, overflowY: "auto", marginTop: 14 }}>
-          {categoryOrder.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 40 }}>No products found</div>}
-          {categoryOrder.map(cat => (
-            <div key={cat} style={{ marginBottom: 22 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 6, borderBottom: "1px solid #e5e7eb" }}>
-                <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: "#2563eb", textTransform: "uppercase", letterSpacing: 1, fontFamily: "'DM Sans', sans-serif" }}>{cat}</h3>
-                <span style={{ fontSize: 11, color: "#9ca3af" }}>{groupedByCategory[cat].length} products</span>
+        {posView === "categories" ? (
+          // ─── CATEGORY TILES VIEW ───────────────────────────────
+          <div style={{ flex: 1, overflowY: "auto", marginTop: 14 }}>
+            <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 14 }}>Pick a category</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 14 }}>
+              {categoriesWithStock.map(cat => {
+                const count = products.filter(p => p.category === cat && getStock(p) > 0).reduce((t, p) => t + getStock(p), 0);
+                const productCount = products.filter(p => p.category === cat && getStock(p) > 0).length;
+                const icon = CATEGORY_ICONS[cat] || "📦";
+                return (
+                  <button key={cat} onClick={() => { setPosCatFilter(cat); setPosBrandFilter("All"); setPosView("products"); }}
+                    style={{ background: "linear-gradient(145deg, #ffffff, #f8fafc)", border: "2px solid #d4d8e0", borderRadius: 18, padding: "26px 18px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif" }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 8px 20px rgba(59, 130, 246, 0.12)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "#d4d8e0"; e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
+                    <div style={{ fontSize: 44, lineHeight: 1 }}>{icon}</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: "#111827", textAlign: "center" }}>{cat}</div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>{productCount} product{productCount !== 1 ? "s" : ""} · {count} in stock</div>
+                  </button>
+                );
+              })}
+            </div>
+            {categoriesWithStock.length === 0 && (
+              <div style={{ textAlign: "center", color: "#9ca3af", padding: 60 }}>
+                No products in stock yet. Add some from the Inventory tab.
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 10 }}>
-                {groupedByCategory[cat].map(p => {
-                  const stock = getStock(p);
-                  const inCart = p.serialized ? cart.filter(c => c.productId === p.id).length : (cart.find(c => c.productId === p.id && !c.unitId)?.qty || 0);
-                  const remaining = stock - inCart;
+            )}
+          </div>
+        ) : (
+          // ─── PRODUCT LIST VIEW (drilled into a category) ───────
+          <div style={{ flex: 1, overflowY: "auto", marginTop: 14, display: "flex", flexDirection: "column" }}>
+            {/* Back button + breadcrumb */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #e5e7eb" }}>
+              <button onClick={() => { setPosView("categories"); setPosCatFilter("All"); setPosBrandFilter("All"); setSearch(""); }}
+                style={{ background: "#2563eb15", border: "1px solid #2563eb40", color: "#2563eb", borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 6 }}>
+                ← Back to Categories
+              </button>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "#111827", fontFamily: "'DM Sans', sans-serif" }}>
+                {posCatFilter === "All" ? "🔍 Search Results" : `${CATEGORY_ICONS[posCatFilter] || "📦"} ${posCatFilter}`}
+              </div>
+              <div style={{ marginLeft: "auto", fontSize: 13, color: "#6b7280" }}>{filtered.length} product{filtered.length !== 1 ? "s" : ""}</div>
+            </div>
+
+            {/* Brand filter pills (only when in Smartphones/Laptops/Tablets/Audio with brand data) */}
+            {SERIALIZED_CATEGORIES.includes(posCatFilter) && products.some(p => p.category === posCatFilter && p.serialized && getStock(p) > 0) && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Brand:</span>
+                {[["All", "All"], ["Apple", "🍎 Apple"], ["Android", "🤖 Android"], ["Other", "Other"]].map(([val, label]) => {
+                  const count = val === "All"
+                    ? products.filter(p => p.category === posCatFilter && p.serialized && getStock(p) > 0).length
+                    : products.filter(p => p.category === posCatFilter && p.serialized && (p.brand || "Other") === val && getStock(p) > 0).length;
+                  if (val !== "All" && count === 0) return null;
+                  const active = posBrandFilter === val;
                   return (
-                    <div key={p.id} onClick={() => remaining > 0 && handleProductClick(p)} style={{ background: "linear-gradient(145deg, #ffffff, #f8f9fc)", border: "1px solid #d4d8e0", borderRadius: 14, padding: 14, cursor: remaining > 0 ? "pointer" : "not-allowed", transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 6, opacity: remaining <= 0 ? 0.4 : 1, minHeight: 120 }}
-                      onMouseEnter={e => { if (remaining > 0) { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.transform = "translateY(-2px)"; }}}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = "#d4d8e0"; e.currentTarget.style.transform = "none"; }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", lineHeight: 1.3 }}>{p.name}</div>
-                      <div style={{ fontSize: 11, color: "#6b7280" }}>{p.sku}</div>
-                      {p.serialized && <div style={{ fontSize: 10, color: "#f59e0b" }}>📋 Unique IMEI</div>}
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto" }}>
-                        {(() => {
-                          if (p.serialized && (p.units || []).filter(u => u.status === "in_stock").length > 0) {
-                            const inStock = p.units.filter(u => u.status === "in_stock");
-                            const prices = inStock.map(u => u.price ?? p.price ?? 0);
-                            const minP = Math.min(...prices);
-                            const maxP = Math.max(...prices);
-                            return minP === maxP
-                              ? <span style={{ fontSize: 16, fontWeight: 800, color: "#3b82f6" }}>{currency(minP)}</span>
-                              : <span style={{ fontSize: 14, fontWeight: 800, color: "#3b82f6" }}>{currency(minP)}–{currency(maxP)}</span>;
-                          }
-                          return <span style={{ fontSize: 16, fontWeight: 800, color: "#3b82f6" }}>{currency(p.price)}</span>;
-                        })()}
-                        <Badge color={stock < 5 ? "#ef4444" : "#10b981"}>{stock}</Badge>
-                      </div>
-                    </div>
+                    <button key={val} onClick={() => setPosBrandFilter(val)}
+                      style={{ padding: "6px 14px", borderRadius: 16, border: `1px solid ${active ? "#2563eb" : "#d4d8e0"}`, background: active ? "#2563eb15" : "#ffffff", color: active ? "#2563eb" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
+                      {label}{val !== "All" && <span style={{ marginLeft: 5, opacity: 0.6, fontSize: 12 }}>{count}</span>}
+                    </button>
                   );
                 })}
               </div>
+            )}
+
+            {/* Product grid — bigger cards */}
+            {filtered.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 40 }}>No products found</div>}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
+              {filtered.map(p => {
+                const stock = getStock(p);
+                const inCart = p.serialized ? cart.filter(c => c.productId === p.id).length : (cart.find(c => c.productId === p.id && !c.unitId)?.qty || 0);
+                const remaining = stock - inCart;
+                return (
+                  <div key={p.id} onClick={() => remaining > 0 && handleProductClick(p)}
+                    style={{ background: "linear-gradient(145deg, #ffffff, #f8f9fc)", border: "2px solid #d4d8e0", borderRadius: 16, padding: 18, cursor: remaining > 0 ? "pointer" : "not-allowed", transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 8, opacity: remaining <= 0 ? 0.4 : 1, minHeight: 160 }}
+                    onMouseEnter={e => { if (remaining > 0) { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 8px 18px rgba(59, 130, 246, 0.12)"; }}}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "#d4d8e0"; e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", lineHeight: 1.3 }}>{p.name}</div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>{p.sku}</div>
+                    {p.serialized && <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>📋 Unique IMEI · tap to pick</div>}
+                    {p.brand && p.serialized && <Badge color={p.brand === "Apple" ? "#1d4ed8" : p.brand === "Android" ? "#10b981" : "#6b7280"}>{p.brand === "Apple" ? "🍎 Apple" : p.brand === "Android" ? "🤖 Android" : p.brand}</Badge>}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto", paddingTop: 8 }}>
+                      {(() => {
+                        if (p.serialized && (p.units || []).filter(u => u.status === "in_stock").length > 0) {
+                          const inStock = p.units.filter(u => u.status === "in_stock");
+                          const prices = inStock.map(u => u.price ?? p.price ?? 0);
+                          const minP = Math.min(...prices);
+                          const maxP = Math.max(...prices);
+                          return minP === maxP
+                            ? <span style={{ fontSize: 20, fontWeight: 800, color: "#3b82f6" }}>{currency(minP)}</span>
+                            : <span style={{ fontSize: 16, fontWeight: 800, color: "#3b82f6" }}>{currency(minP)}–{currency(maxP)}</span>;
+                        }
+                        return <span style={{ fontSize: 20, fontWeight: 800, color: "#3b82f6" }}>{currency(p.price)}</span>;
+                      })()}
+                      <Badge color={stock < 5 ? "#ef4444" : "#10b981"}>{stock} in stock</Badge>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
 
       <div style={{ width: 340, flexShrink: 0, display: "flex", flexDirection: "column", background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 16, padding: 18 }}>
