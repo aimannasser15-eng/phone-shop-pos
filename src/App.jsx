@@ -1213,6 +1213,8 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("All");
   const [brandFilter, setBrandFilter] = useState("All");
+  const [invView, setInvView] = useState("categories"); // "categories" or "products"
+  useEffect(() => { if (search.trim() && invView === "categories") setInvView("products"); }, [search]);
   const [unitsModal, setUnitsModal] = useState(null);
   const [newImei, setNewImei] = useState("");
   const [newColor, setNewColor] = useState("");
@@ -1428,6 +1430,7 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      {/* Stats row — always visible */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
         <StatCard label="Total Products" value={products.length} color="#2563eb" />
         <StatCard label="Total Stock Value" value={currency(totalValue)} color="#10b981" />
@@ -1435,27 +1438,91 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
         <StatCard label="Out of Stock" value={outOfStock} color="#ef4444" />
       </div>
 
-      {/* Brand quick filter pills */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>📱 Phones:</span>
-        {[["All", "All Stock"], ["Apple", "🍎 Apple"], ["Android", "🤖 Android"], ["Other", "Other"]].map(([val, label]) => (
-          <button key={val} onClick={() => setBrandFilter(val)}
-            style={{ padding: "5px 14px", borderRadius: 16, border: `1px solid ${brandFilter === val ? "#2563eb" : "#d4d8e0"}`, background: brandFilter === val ? "#2563eb15" : "#ffffff", color: brandFilter === val ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>
-            {label}{val !== "All" && <span style={{ marginLeft: 6, background: brandFilter === val ? "#2563eb" : "#e5e7eb", color: brandFilter === val ? "#fff" : "#6b7280", borderRadius: 10, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>{brandCount(val)}</span>}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "flex-end" }}>
-        <div style={{ flex: 1 }}><Input placeholder="Search by name, SKU, or IMEI…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
-        <Select options={["All", ...CATEGORIES]} value={catFilter} onChange={e => setCatFilter(e.target.value)} style={{ width: 160, marginBottom: 0 }} />
+      {/* Toolbar — always visible regardless of view */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 240 }}><Input placeholder="🔍 Search by name, SKU, or IMEI…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
         <Btn variant="ghost" onClick={() => setShowStockAlertModal(true)}>⚠️ Stock Alerts {stockAlertCount > 0 && <span style={{ background: outOfStockItems.length > 0 ? "#ef4444" : "#f59e0b", color: "#fff", borderRadius: 10, padding: "1px 7px", fontSize: 11, marginLeft: 4 }}>{stockAlertCount}</span>}</Btn>
         <Btn variant="ghost" onClick={() => setShowLogsModal(true)}>📋 Deletion Log {deletionLogs.length > 0 && <span style={{ background: "#ef4444", color: "#fff", borderRadius: 10, padding: "1px 7px", fontSize: 11, marginLeft: 4 }}>{deletionLogs.length}</span>}</Btn>
         <Btn variant="warning" onClick={() => { setImportPreview(null); setImportError(""); setImportModal(true); }}>📥 Import Excel</Btn>
         <Btn onClick={openAdd}>+ Add Product</Btn>
       </div>
-      <div style={{ flex: 1, overflowY: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
+
+      {invView === "categories" ? (
+        // ─── CATEGORY TILES VIEW ──────────────────────────────
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 14 }}>Pick a category to manage</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14 }}>
+            {/* "All" tile - show all products */}
+            <button onClick={() => { setCatFilter("All"); setBrandFilter("All"); setInvView("products"); }}
+              style={{ background: "linear-gradient(145deg, #2563eb, #3b82f6)", border: "2px solid #2563eb", borderRadius: 18, padding: "26px 18px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif", color: "#ffffff" }}
+              onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 8px 20px rgba(59, 130, 246, 0.3)"; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
+              <div style={{ fontSize: 44, lineHeight: 1 }}>📦</div>
+              <div style={{ fontSize: 16, fontWeight: 800, textAlign: "center" }}>All Products</div>
+              <div style={{ fontSize: 12, opacity: 0.9 }}>{products.length} products total</div>
+            </button>
+            {CATEGORIES.map(cat => {
+              const catProducts = products.filter(p => p.category === cat);
+              if (catProducts.length === 0) return null;
+              const totalStock = catProducts.reduce((t, p) => t + getStock(p), 0);
+              const lowOrOut = catProducts.filter(p => getStock(p) < 5).length;
+              const icon = CATEGORY_ICONS[cat] || "📦";
+              return (
+                <button key={cat} onClick={() => { setCatFilter(cat); setBrandFilter("All"); setInvView("products"); }}
+                  style={{ background: "linear-gradient(145deg, #ffffff, #f8fafc)", border: "2px solid #d4d8e0", borderRadius: 18, padding: "26px 18px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif", position: "relative" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 8px 20px rgba(59, 130, 246, 0.12)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = "#d4d8e0"; e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
+                  {lowOrOut > 0 && <span style={{ position: "absolute", top: 10, right: 10, background: "#ef4444", color: "#fff", borderRadius: 12, padding: "2px 8px", fontSize: 10, fontWeight: 700 }}>⚠ {lowOrOut}</span>}
+                  <div style={{ fontSize: 44, lineHeight: 1 }}>{icon}</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#111827", textAlign: "center" }}>{cat}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>{catProducts.length} product{catProducts.length !== 1 ? "s" : ""} · {totalStock} in stock</div>
+                </button>
+              );
+            })}
+          </div>
+          {products.length === 0 && (
+            <div style={{ textAlign: "center", color: "#9ca3af", padding: 60 }}>
+              No products yet. Click <strong>+ Add Product</strong> or <strong>📥 Import Excel</strong> to get started.
+            </div>
+          )}
+        </div>
+      ) : (
+        // ─── PRODUCT LIST VIEW (drilled into a category or searching) ─
+        <>
+          {/* Back button + breadcrumb */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #e5e7eb" }}>
+            <button onClick={() => { setInvView("categories"); setCatFilter("All"); setBrandFilter("All"); setSearch(""); }}
+              style={{ background: "#2563eb15", border: "1px solid #2563eb40", color: "#2563eb", borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
+              ← Back to Categories
+            </button>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "#111827", fontFamily: "'DM Sans', sans-serif" }}>
+              {search.trim() ? `🔍 Search: "${search}"` : catFilter === "All" ? "📦 All Products" : `${CATEGORY_ICONS[catFilter] || "📦"} ${catFilter}`}
+            </div>
+            <div style={{ marginLeft: "auto", fontSize: 13, color: "#6b7280" }}>{filtered.length} product{filtered.length !== 1 ? "s" : ""}</div>
+          </div>
+
+          {/* Brand filter pills (only for Smartphones/Laptops/Tablets/Audio with brand data) */}
+          {SERIALIZED_CATEGORIES.includes(catFilter) && products.some(p => p.category === catFilter && p.serialized) && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Brand:</span>
+              {[["All", "All"], ["Apple", "🍎 Apple"], ["Android", "🤖 Android"], ["Other", "Other"]].map(([val, label]) => {
+                const count = val === "All"
+                  ? products.filter(p => p.category === catFilter && p.serialized).length
+                  : products.filter(p => p.category === catFilter && p.serialized && (p.brand || "Other") === val).length;
+                if (val !== "All" && count === 0) return null;
+                const active = brandFilter === val;
+                return (
+                  <button key={val} onClick={() => setBrandFilter(val)}
+                    style={{ padding: "6px 14px", borderRadius: 16, border: `1px solid ${active ? "#2563eb" : "#d4d8e0"}`, background: active ? "#2563eb15" : "#ffffff", color: active ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>
+                    {label}{val !== "All" && <span style={{ marginLeft: 5, opacity: 0.6, fontSize: 12 }}>{count}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
           <thead>
             <tr style={{ borderBottom: "2px solid #d4d8e0", color: "#6b7280", textAlign: "left" }}>
               <th style={{ padding: "10px 8px" }}>SKU</th><th style={{ padding: "10px 8px" }}>Product</th><th style={{ padding: "10px 8px" }}>Type</th><th style={{ padding: "10px 8px" }}>Category</th>
@@ -1517,6 +1584,8 @@ const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, us
           </tbody>
         </table>
       </div>
+        </>
+      )}
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Product" : "Add Product"}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
@@ -2309,7 +2378,10 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
     catch { return ["Ready for Pickup"]; }
   });
   const [showSMSSettings, setShowSMSSettings] = useState(false);
+  const [repairView, setRepairView] = useState("groups"); // "groups" or "list"
+  const [repairGroup, setRepairGroup] = useState("active"); // "active" | "ready" | "completed"
   useEffect(() => { localStorage.setItem("pos-auto-sms-v1", JSON.stringify(autoSMSStatuses)); }, [autoSMSStatuses]);
+  useEffect(() => { if (repairSearch.trim() && repairView === "groups") setRepairView("list"); }, [repairSearch]);
   const blank = { customer: "", customerName: "", customerPhone: "", customerEmail: "", _autoFilled: false, device: "", imei: "", issue: "", status: "Received", cost: "", payment: "cash", cashPaid: "", notes: "", partsUsed: [], partsDeducted: false };
   const [form, setForm] = useState(blank);
 
@@ -2435,7 +2507,15 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
       }
     }
   };
+  const ACTIVE_STATUSES = ["Received", "Diagnosing", "Waiting for Parts", "In Repair", "Testing"];
+
   const filtered = repairs.filter(r => {
+    // Group filter (active / ready / completed)
+    if (repairView === "list" && !repairSearch.trim()) {
+      if (repairGroup === "active" && !ACTIVE_STATUSES.includes(r.status)) return false;
+      if (repairGroup === "ready" && r.status !== "Ready for Pickup") return false;
+      if (repairGroup === "completed" && r.status !== "Completed") return false;
+    }
     if (statusFilter !== "All" && r.status !== statusFilter) return false;
     if (!repairSearch.trim()) return true;
     const q = repairSearch.toLowerCase();
@@ -2448,20 +2528,92 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
   });
   const statusColors = { "Received": "#2563eb", "Diagnosing": "#a855f7", "Waiting for Parts": "#f59e0b", "In Repair": "#3b82f6", "Testing": "#06b6d4", "Ready for Pickup": "#10b981", "Completed": "#6b7280" };
 
+  // Group counts
+  const activeCount = repairs.filter(r => ACTIVE_STATUSES.includes(r.status)).length;
+  const readyCount = repairs.filter(r => r.status === "Ready for Pickup").length;
+  const completedCount = repairs.filter(r => r.status === "Completed").length;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-        <StatCard label="Active Repairs" value={repairs.filter(r => r.status !== "Completed").length} color="#f59e0b" />
-        <StatCard label="Ready for Pickup" value={repairs.filter(r => r.status === "Ready for Pickup").length} color="#10b981" />
-        <StatCard label="Completed" value={repairs.filter(r => r.status === "Completed").length} color="#6b7280" />
-      </div>
-      <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "flex-end" }}>
-        <div style={{ flex: 1 }}><Input placeholder="Search by customer, device, IMEI, or fault…" value={repairSearch} onChange={e => setRepairSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
-        <Select options={["All", ...REPAIR_STATUSES]} value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: 200, marginBottom: 0 }} />
+      {/* Toolbar — always visible */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 240 }}><Input placeholder="🔍 Search by customer, device, IMEI, or fault…" value={repairSearch} onChange={e => setRepairSearch(e.target.value)} style={{ marginBottom: 0 }} /></div>
         <Btn variant="ghost" onClick={() => setShowSMSSettings(true)}>📱 SMS Settings</Btn>
         <Btn onClick={openAdd}>+ New Repair</Btn>
       </div>
-      <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
+
+      {repairView === "groups" ? (
+        // ─── GROUP TILES VIEW ──────────────────────────────
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 14 }}>Pick a group</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
+            {/* Active repairs tile */}
+            <button onClick={() => { setRepairGroup("active"); setStatusFilter("All"); setRepairView("list"); }}
+              style={{ background: "linear-gradient(145deg, #f59e0b, #d97706)", border: "2px solid #f59e0b", borderRadius: 18, padding: "26px 18px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif", color: "#ffffff" }}
+              onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 8px 20px rgba(245, 158, 11, 0.3)"; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
+              <div style={{ fontSize: 44, lineHeight: 1 }}>🔧</div>
+              <div style={{ fontSize: 18, fontWeight: 800 }}>Active Repairs</div>
+              <div style={{ fontSize: 14, opacity: 0.95 }}>{activeCount} in progress</div>
+              <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Received · Diagnosing · In Repair · Waiting Parts · Testing</div>
+            </button>
+
+            {/* Ready for Pickup tile */}
+            <button onClick={() => { setRepairGroup("ready"); setStatusFilter("All"); setRepairView("list"); }}
+              style={{ background: "linear-gradient(145deg, #10b981, #059669)", border: "2px solid #10b981", borderRadius: 18, padding: "26px 18px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif", color: "#ffffff", position: "relative" }}
+              onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 8px 20px rgba(16, 185, 129, 0.3)"; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
+              {readyCount > 0 && <span style={{ position: "absolute", top: 10, right: 10, background: "#ffffff", color: "#10b981", borderRadius: 12, padding: "2px 10px", fontSize: 11, fontWeight: 800 }}>📞 CALL!</span>}
+              <div style={{ fontSize: 44, lineHeight: 1 }}>✅</div>
+              <div style={{ fontSize: 18, fontWeight: 800 }}>Ready for Pickup</div>
+              <div style={{ fontSize: 14, opacity: 0.95 }}>{readyCount} waiting</div>
+              <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Call/SMS customers to collect</div>
+            </button>
+
+            {/* Completed tile */}
+            <button onClick={() => { setRepairGroup("completed"); setStatusFilter("All"); setRepairView("list"); }}
+              style={{ background: "linear-gradient(145deg, #6b7280, #4b5563)", border: "2px solid #6b7280", borderRadius: 18, padding: "26px 18px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif", color: "#ffffff" }}
+              onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 8px 20px rgba(107, 114, 128, 0.3)"; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
+              <div style={{ fontSize: 44, lineHeight: 1 }}>📋</div>
+              <div style={{ fontSize: 18, fontWeight: 800 }}>Completed</div>
+              <div style={{ fontSize: 14, opacity: 0.95 }}>{completedCount} total</div>
+              <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Historical record</div>
+            </button>
+
+            {/* All repairs tile */}
+            <button onClick={() => { setRepairGroup("all"); setStatusFilter("All"); setRepairView("list"); }}
+              style={{ background: "linear-gradient(145deg, #ffffff, #f8fafc)", border: "2px solid #d4d8e0", borderRadius: 18, padding: "26px 18px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif", color: "#111827" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 8px 20px rgba(59, 130, 246, 0.12)"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#d4d8e0"; e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
+              <div style={{ fontSize: 44, lineHeight: 1 }}>📦</div>
+              <div style={{ fontSize: 18, fontWeight: 800 }}>All Repairs</div>
+              <div style={{ fontSize: 14, color: "#6b7280" }}>{repairs.length} total</div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>Browse everything</div>
+            </button>
+          </div>
+
+          {repairs.length === 0 && (
+            <div style={{ textAlign: "center", color: "#9ca3af", padding: 60 }}>
+              No repairs yet. Click <strong>+ New Repair</strong> to book one in.
+            </div>
+          )}
+        </div>
+      ) : (
+        // ─── LIST VIEW (drilled into a group) ──────────────────
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #e5e7eb", flexWrap: "wrap" }}>
+            <button onClick={() => { setRepairView("groups"); setRepairGroup("active"); setStatusFilter("All"); setRepairSearch(""); }}
+              style={{ background: "#2563eb15", border: "1px solid #2563eb40", color: "#2563eb", borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
+              ← Back to Groups
+            </button>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "#111827", fontFamily: "'DM Sans', sans-serif" }}>
+              {repairSearch.trim() ? `🔍 Search: "${repairSearch}"` : repairGroup === "active" ? "🔧 Active Repairs" : repairGroup === "ready" ? "✅ Ready for Pickup" : repairGroup === "completed" ? "📋 Completed" : "📦 All Repairs"}
+            </div>
+            <div style={{ marginLeft: "auto", fontSize: 13, color: "#6b7280" }}>{filtered.length} repair{filtered.length !== 1 ? "s" : ""}</div>
+            <Select options={["All", ...REPAIR_STATUSES]} value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: 200, marginBottom: 0 }} />
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
         {filtered.map(r => {
           const cust = customers.find(c => c.id === r.customer);
           return (
@@ -2535,6 +2687,8 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
         })}
         {filtered.length === 0 && <div style={{ textAlign: "center", color: "#9ca3af", padding: 40 }}>No repairs found</div>}
       </div>
+        </>
+      )}
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? "Edit Repair" : "New Repair"}>
         {/* Customer — phone number first, auto-fill if found */}
         <div style={{ marginBottom: 14 }}>
