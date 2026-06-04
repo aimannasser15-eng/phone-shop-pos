@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
 
 // ─── Firebase Configuration ─────────────────────────────────────────
 const firebaseConfig = {
@@ -612,6 +612,16 @@ const SAMPLE_PRODUCTS = [
   { id: uid(), name: "Lightning Cable 2m", category: "Cables", price: 14.99, cost: 3, stock: 30, sku: "LC2M", serialized: false, units: [] },
 ];
 
+// Unique device ID — used so we can tell which device made a Firestore change
+// (a device ignores its own snapshot updates to avoid feedback loops & flicker)
+const DEVICE_ID = (() => {
+  try {
+    let id = localStorage.getItem("pos-device-id");
+    if (!id) { id = "dev_" + Math.random().toString(36).slice(2, 12) + "_" + Date.now().toString(36); localStorage.setItem("pos-device-id", id); }
+    return id;
+  } catch { return "dev_" + Math.random().toString(36).slice(2, 12); }
+})();
+
 // Load data from Firestore (one document per "key" under shop/data/)
 const loadData = async (key, fallback) => {
   try {
@@ -619,10 +629,27 @@ const loadData = async (key, fallback) => {
     return snap.exists() ? (snap.data().value || fallback) : fallback;
   } catch (e) { console.error("Load error:", e); return fallback; }
 };
-// Save data to Firestore
+// Save data to Firestore (includes device ID so we can ignore our own snapshot echoes)
 const saveData = async (key, data) => {
-  try { await setDoc(doc(db, "shop", key), { value: data, updatedAt: new Date().toISOString() }); }
+  try { await setDoc(doc(db, "shop", key), { value: data, updatedAt: new Date().toISOString(), deviceId: DEVICE_ID }); }
   catch (e) { console.error("Save error:", e); }
+};
+
+// Subscribe to real-time updates for a key. Returns the unsubscribe function.
+// Callback receives the new value when ANOTHER device makes a change.
+const subscribeData = (key, callback) => {
+  try {
+    return onSnapshot(doc(db, "shop", key), (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      // Ignore updates we made ourselves to prevent infinite loops
+      if (data.deviceId === DEVICE_ID) return;
+      callback(data.value);
+    }, (err) => console.error(`Snapshot error for ${key}:`, err));
+  } catch (e) {
+    console.error(`Failed to subscribe to ${key}:`, e);
+    return () => {};
+  }
 };
 
 // ─── Reusable Components ────────────────────────────────────────────
@@ -4706,6 +4733,25 @@ function MainApp({ user }) {
     })();
   }, []);
 
+  // ─── Real-time sync across devices ──────────────────────────────────
+  // After initial load, subscribe to live updates from Firestore.
+  // When another iPad makes a change, it pushes to all other devices within ~1s.
+  // Each device ignores its own writes (via DEVICE_ID check inside subscribeData).
+  useEffect(() => {
+    if (!loaded) return;
+    const unsubs = [
+      subscribeData("pos-products-v3", v => setProducts(v || [])),
+      subscribeData("pos-sales-v3", v => setSales(v || [])),
+      subscribeData("pos-customers-v3", v => setCustomers(v || [])),
+      subscribeData("pos-repairs-v3", v => setRepairs(v || [])),
+      subscribeData("pos-tradeins-v3", v => setTradeIns(v || [])),
+      subscribeData("pos-deposits-v1", v => setDeposits(v || [])),
+      subscribeData("pos-deletion-logs-v1", v => setDeletionLogs(v || [])),
+      subscribeData("pos-staff-v1", v => setStaff(v || [])),
+    ];
+    return () => unsubs.forEach(u => u && u());
+  }, [loaded]);
+
   useEffect(() => { if (loaded) saveData("pos-products-v3", products); }, [products, loaded]);
   useEffect(() => { if (loaded) saveData("pos-sales-v3", sales); }, [sales, loaded]);
   useEffect(() => { if (loaded) saveData("pos-customers-v3", customers); }, [customers, loaded]);
@@ -4758,6 +4804,12 @@ function MainApp({ user }) {
             </div>
           </div>
           <button onClick={() => setActiveStaff(null)} style={{ fontSize: 12, color: "#2563eb", background: "#2563eb15", border: "1px solid #2563eb", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6, fontWeight: 600 }}>🔄 Switch User</button>
+          {/* Live sync indicator */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#10b981", marginTop: 4, marginBottom: 4 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", animation: "pulse 2s infinite", display: "inline-block" }}></span>
+            Live sync active
+          </div>
+          <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
           <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 8, marginBottom: 4, wordBreak: "break-all" }}>Account: {user.email}</div>
           <button onClick={() => signOut(auth)} style={{ fontSize: 11, color: "#ef4444", background: "none", border: "1px solid #ef444466", borderRadius: 8, padding: "3px 8px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6 }}>🚪 Sign Out</button>
           <br />
