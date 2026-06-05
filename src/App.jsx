@@ -2407,9 +2407,12 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
   const [showSMSSettings, setShowSMSSettings] = useState(false);
   const [repairView, setRepairView] = useState("groups"); // "groups" or "list"
   const [repairGroup, setRepairGroup] = useState("active"); // "active" | "ready" | "completed"
+  const [completedDateRange, setCompletedDateRange] = useState("all"); // all, today, yesterday, 7days, week, month, lastmonth, custom
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo] = useState("");
   useEffect(() => { localStorage.setItem("pos-auto-sms-v1", JSON.stringify(autoSMSStatuses)); }, [autoSMSStatuses]);
   useEffect(() => { if (repairSearch.trim() && repairView === "groups") setRepairView("list"); }, [repairSearch]);
-  const blank = { customer: "", customerName: "", customerPhone: "", customerEmail: "", _autoFilled: false, device: "", imei: "", issue: "", status: "Received", cost: "", payment: "cash", cashPaid: "", notes: "", partsUsed: [], partsDeducted: false };
+  const blank = { customer: "", customerName: "", customerPhone: "", customerEmail: "", _autoFilled: false, device: "", imei: "", issue: "", status: "Received", cost: "", payment: "cash", cashPaid: "", notes: "", partsUsed: [], partsDeducted: false, paymentStatus: "due_on_collection", amountPaid: "" };
   const [form, setForm] = useState(blank);
 
   const openAdd = () => { setForm(blank); setEditing(null); setShowModal(true); };
@@ -2437,7 +2440,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
     }
     const repairCost = +form.cost || 0;
     const partsCost = (form.partsUsed || []).reduce((t, p) => t + ((p.cost || 0) * (p.qty || 1)), 0);
-    const item = { customer: customerId, device: form.device, imei: form.imei, issue: form.issue, status: form.status, cost: repairCost, partsCost, partsUsed: form.partsUsed || [], partsDeducted: form.partsDeducted || false, payment: form.payment || "cash", cashPaid: form.payment === "mix" ? (+form.cashPaid || 0) : (form.payment === "cash" ? repairCost : 0), cardPaid: form.payment === "mix" ? (repairCost - (+form.cashPaid || 0)) : (form.payment === "card" ? repairCost : 0), notes: form.notes, staff: editing ? form.staff : (activeStaff?.name || ""), staffId: editing ? form.staffId : (activeStaff?.id || "") };
+    const item = { customer: customerId, device: form.device, imei: form.imei, issue: form.issue, status: form.status, cost: repairCost, partsCost, partsUsed: form.partsUsed || [], partsDeducted: form.partsDeducted || false, payment: form.payment || "cash", cashPaid: form.payment === "mix" ? (+form.cashPaid || 0) : (form.payment === "cash" ? repairCost : 0), cardPaid: form.payment === "mix" ? (repairCost - (+form.cashPaid || 0)) : (form.payment === "card" ? repairCost : 0), notes: form.notes, paymentStatus: form.paymentStatus || "due_on_collection", amountPaid: +form.amountPaid || 0, paidOnCollectionDate: form.paymentStatus === "paid_in_full" ? (form.paidOnCollectionDate || today()) : (form.paidOnCollectionDate || null), staff: editing ? form.staff : (activeStaff?.name || ""), staffId: editing ? form.staffId : (activeStaff?.id || "") };
 
     // Detect status transition for stock deduction
     const oldRepair = editing ? repairs.find(r => r.id === editing) : null;
@@ -2517,7 +2520,15 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
     const repair = repairs.find(r => r.id === id);
     if (!repair) return;
     const oldStatus = repair.status;
-    setRepairs(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+    setRepairs(prev => prev.map(r => {
+      if (r.id !== id) return r;
+      const updated = { ...r, status };
+      // Auto-set the completion date when moving TO Completed
+      if (status === "Completed" && oldStatus !== "Completed") {
+        updated.completedDate = new Date().toISOString();
+      }
+      return updated;
+    }));
     // Auto-SMS if enabled for this status and the status actually changed
     if (status !== oldStatus && autoSMSStatuses.includes(status)) {
       const cust = customers.find(c => c.id === repair.customer);
@@ -2536,12 +2547,54 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
   };
   const ACTIVE_STATUSES = ["Received", "Diagnosing", "Waiting for Parts", "In Repair", "Testing"];
 
+  // Helper: get date range based on the selected option
+  const getDateRange = () => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    switch (completedDateRange) {
+      case "today":
+        return { from: todayStart, to: new Date(todayStart.getTime() + 86400000) };
+      case "yesterday": {
+        const yest = new Date(todayStart.getTime() - 86400000);
+        return { from: yest, to: todayStart };
+      }
+      case "7days":
+        return { from: new Date(todayStart.getTime() - 7 * 86400000), to: new Date(todayStart.getTime() + 86400000) };
+      case "week": {
+        const day = now.getDay() || 7;
+        const monday = new Date(todayStart.getTime() - (day - 1) * 86400000);
+        return { from: monday, to: new Date(todayStart.getTime() + 86400000) };
+      }
+      case "month":
+        return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 1) };
+      case "lastmonth":
+        return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 1) };
+      case "custom":
+        return {
+          from: customDateFrom ? new Date(customDateFrom) : null,
+          to: customDateTo ? new Date(new Date(customDateTo).getTime() + 86400000) : null,
+        };
+      default:
+        return { from: null, to: null };
+    }
+  };
+
   const filtered = repairs.filter(r => {
     // Group filter (active / ready / completed)
     if (repairView === "list" && !repairSearch.trim()) {
       if (repairGroup === "active" && !ACTIVE_STATUSES.includes(r.status)) return false;
       if (repairGroup === "ready" && r.status !== "Ready for Pickup") return false;
       if (repairGroup === "completed" && r.status !== "Completed") return false;
+    }
+    // Date range filter — only for completed group
+    if (repairView === "list" && repairGroup === "completed" && !repairSearch.trim() && completedDateRange !== "all") {
+      const { from, to } = getDateRange();
+      // Use the completion date if recorded, otherwise dateIn as fallback
+      const dateStr = r.paidOnCollectionDate || r.completedDate || r.dateIn;
+      if (!dateStr) return false;
+      const d = new Date(dateStr);
+      if (from && d < from) return false;
+      if (to && d >= to) return false;
     }
     if (statusFilter !== "All" && r.status !== statusFilter) return false;
     if (!repairSearch.trim()) return true;
@@ -2630,7 +2683,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
         // ─── LIST VIEW (drilled into a group) ──────────────────
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #e5e7eb", flexWrap: "wrap" }}>
-            <button onClick={() => { setRepairView("groups"); setRepairGroup("active"); setStatusFilter("All"); setRepairSearch(""); }}
+            <button onClick={() => { setRepairView("groups"); setRepairGroup("active"); setStatusFilter("All"); setRepairSearch(""); setCompletedDateRange("all"); }}
               style={{ background: "#2563eb15", border: "1px solid #2563eb40", color: "#2563eb", borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
               ← Back to Groups
             </button>
@@ -2640,6 +2693,38 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
             <div style={{ marginLeft: "auto", fontSize: 13, color: "#6b7280" }}>{filtered.length} repair{filtered.length !== 1 ? "s" : ""}</div>
             <Select options={["All", ...REPAIR_STATUSES]} value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: 200, marginBottom: 0 }} />
           </div>
+
+          {/* Date filter pills — only show for Completed group */}
+          {repairGroup === "completed" && !repairSearch.trim() && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 14, padding: 12, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10 }}>
+              <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>📅 Date:</span>
+              {[
+                ["all", "All Time"],
+                ["today", "Today"],
+                ["yesterday", "Yesterday"],
+                ["7days", "Last 7 Days"],
+                ["week", "This Week"],
+                ["month", "This Month"],
+                ["lastmonth", "Last Month"],
+                ["custom", "📅 Custom"],
+              ].map(([val, label]) => {
+                const active = completedDateRange === val;
+                return (
+                  <button key={val} onClick={() => setCompletedDateRange(val)}
+                    style={{ padding: "5px 12px", borderRadius: 14, border: `1px solid ${active ? "#2563eb" : "#d4d8e0"}`, background: active ? "#2563eb15" : "#ffffff", color: active ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>
+                    {label}
+                  </button>
+                );
+              })}
+              {completedDateRange === "custom" && (
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 8 }}>
+                  <input type="date" value={customDateFrom} onChange={e => setCustomDateFrom(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #d4d8e0", fontSize: 12, fontFamily: "'DM Sans', sans-serif" }} />
+                  <span style={{ color: "#6b7280", fontSize: 12 }}>to</span>
+                  <input type="date" value={customDateTo} onChange={e => setCustomDateTo(e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #d4d8e0", fontSize: 12, fontFamily: "'DM Sans', sans-serif" }} />
+                </div>
+              )}
+            </div>
+          )}
           <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
         {filtered.map(r => {
           const cust = customers.find(c => c.id === r.customer);
@@ -2647,13 +2732,28 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
             <Card key={r.id} style={{ cursor: "pointer" }} onClick={() => openEdit(r)}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, flexWrap: "wrap" }}>
                 <div style={{ flex: 1, minWidth: 200 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>{r.device}</span>
                     <Badge color={statusColors[r.status] || "#2563eb"}>{r.status}</Badge>
+                    {/* Payment status badge */}
+                    {(() => {
+                      const ps = r.paymentStatus || "due_on_collection";
+                      const cost = r.cost || 0;
+                      const paid = r.amountPaid || 0;
+                      if (ps === "paid_in_full") return <Badge color="#10b981">✅ Paid in Full</Badge>;
+                      if (ps === "paid_upfront") return <Badge color="#10b981">🟢 Paid Upfront</Badge>;
+                      if (ps === "partial") return <Badge color="#f59e0b">🟡 £{paid.toFixed(2)} paid · £{(cost - paid).toFixed(2)} due</Badge>;
+                      if (ps === "due_on_collection" && cost > 0) return <Badge color="#3b82f6">🔵 £{cost.toFixed(2)} due on collection</Badge>;
+                      return null;
+                    })()}
                   </div>
                   {r.imei && <div style={{ fontSize: 12, color: "#f59e0b", fontFamily: "monospace", marginBottom: 3 }}>IMEI/SN: {r.imei}</div>}
                   <div style={{ fontSize: 13, color: "#6b7280" }}>Fault: {r.issue}</div>
                   {r.staff && <div style={{ fontSize: 11, color: "#2563eb", marginTop: 2 }}>👤 Booked by {r.staff}</div>}
+                  <div style={{ display: "flex", gap: 10, fontSize: 11, color: "#9ca3af", marginTop: 2, flexWrap: "wrap" }}>
+                    {r.dateIn && <span>📥 Received: {new Date(r.dateIn).toLocaleDateString("en-GB")}</span>}
+                    {r.completedDate && r.status === "Completed" && <span style={{ color: "#10b981", fontWeight: 600 }}>✅ Completed: {new Date(r.completedDate).toLocaleDateString("en-GB")}</span>}
+                  </div>
                   {(r.partsUsed || []).length > 0 && (
                     <div style={{ fontSize: 11, color: r.partsDeducted ? "#10b981" : "#6b7280", marginTop: 4, fontWeight: 500 }}>
                       🔧 Parts: {r.partsUsed.map(p => `${p.qty || 1}× ${p.name}`).join(", ")}
@@ -2780,6 +2880,43 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
           )}
           {form.partsDeducted && <div style={{ fontSize: 11, color: "#10b981", marginTop: 6, fontWeight: 600 }}>✅ Parts deducted from stock</div>}
           {!form.partsDeducted && (form.partsUsed || []).length > 0 && form.status !== "Completed" && <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>💡 Stock will be deducted automatically when status is set to "Completed"</div>}
+        </div>
+
+        {/* Payment Status — when does the customer pay? */}
+        <div style={{ marginBottom: 12, padding: 12, background: "#eff6ff", border: "1px solid #2563eb40", borderRadius: 10 }}>
+          <label style={{ display: "block", fontSize: 12, color: "#1e40af", marginBottom: 8, fontFamily: "'DM Sans', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>💰 Payment Status</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {[
+              ["paid_upfront", "🟢 Paid Upfront", "Customer paid full when booking"],
+              ["partial", "🟡 Partial / Deposit", "Customer paid part now, rest on collection"],
+              ["due_on_collection", "🔵 Pay on Collection", "Customer will pay when collecting"],
+              ["paid_in_full", "✅ Paid in Full", "Repair done & customer collected (paid)"],
+            ].map(([val, label, desc]) => (
+              <button key={val} type="button" onClick={() => {
+                const next = { ...form, paymentStatus: val };
+                if (val === "paid_upfront" || val === "paid_in_full") next.amountPaid = form.cost || "";
+                if (val === "due_on_collection") next.amountPaid = "0";
+                if (val === "paid_in_full") next.paidOnCollectionDate = today();
+                setForm(next);
+              }}
+                title={desc}
+                style={{ flex: "1 1 calc(50% - 6px)", minWidth: 130, padding: "10px 8px", borderRadius: 8, border: `1px solid ${form.paymentStatus === val ? "#2563eb" : "#d4d8e0"}`, background: form.paymentStatus === val ? "#ffffff" : "transparent", color: form.paymentStatus === val ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", textAlign: "left" }}>
+                <div>{label}</div>
+                <div style={{ fontSize: 10, opacity: 0.7, marginTop: 2 }}>{desc}</div>
+              </button>
+            ))}
+          </div>
+          {form.paymentStatus === "partial" && (
+            <div style={{ marginTop: 10 }}>
+              <Input label={`Amount paid now (£) — total repair £${(+form.cost || 0).toFixed(2)}`} type="number" min={0} value={form.amountPaid} onChange={e => setForm({ ...form, amountPaid: e.target.value })} style={{ marginBottom: 0 }} />
+              <div style={{ fontSize: 11, color: "#1e40af", marginTop: 4 }}>Remaining on collection: <strong>£{Math.max(0, (+form.cost || 0) - (+form.amountPaid || 0)).toFixed(2)}</strong></div>
+            </div>
+          )}
+          {form.paymentStatus === "paid_in_full" && editing && (
+            <div style={{ marginTop: 8, fontSize: 11, color: "#10b981", fontWeight: 600 }}>
+              ✅ Marked paid in full {form.paidOnCollectionDate ? `on ${new Date(form.paidOnCollectionDate).toLocaleDateString("en-GB")}` : "today"}
+            </div>
+          )}
         </div>
 
         <div style={{ marginBottom: 12 }}>
