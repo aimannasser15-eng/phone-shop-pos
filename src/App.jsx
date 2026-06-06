@@ -2425,13 +2425,34 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
   const save = () => {
     if (!form.device || !form.issue) return;
     let customerId = form.customer;
-    // If no existing customer matched, create a new one from entered details
-    if (!customerId && form.customerName.trim()) {
+    const trimmedName = form.customerName.trim();
+    const trimmedPhone = form.customerPhone.trim();
+    const trimmedEmail = form.customerEmail.trim();
+
+    if (customerId) {
+      // Existing customer linked — update their details if the user has changed anything
+      const existing = customers.find(c => c.id === customerId);
+      if (existing) {
+        const changed =
+          existing.name !== trimmedName ||
+          existing.phone !== trimmedPhone ||
+          existing.email !== trimmedEmail;
+        if (changed) {
+          setCustomers(prev => prev.map(c => c.id === customerId ? {
+            ...c,
+            name: trimmedName || c.name,
+            phone: trimmedPhone || c.phone,
+            email: trimmedEmail || c.email,
+          } : c));
+        }
+      }
+    } else if (trimmedName || trimmedPhone) {
+      // No customer linked yet — create a new one (need at least a name or phone)
       const newCust = {
         id: uid(),
-        name: form.customerName.trim(),
-        phone: form.customerPhone.trim(),
-        email: form.customerEmail.trim(),
+        name: trimmedName,
+        phone: trimmedPhone,
+        email: trimmedEmail,
         notes: "",
         joined: today(),
       };
@@ -4412,132 +4433,165 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
           {range === "custom" && `${new Date(customFrom).toLocaleDateString("en-GB")} to ${new Date(customTo).toLocaleDateString("en-GB")}`}
         </strong>
       </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-        <StatCard label="Total Revenue" value={currency(revenue)} color="#10b981" sub={`${filtered.length} transactions`} />
-        <StatCard label="Total Cost" value={currency(totalCost)} color="#ef4444" sub="What you paid" />
-        <StatCard label="Net Profit" value={currency(profit)} color="#2563eb" sub={`${profitMargin.toFixed(1)}% margin`} />
-      </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <StatCard label="Items Sold" value={itemsSold} color="#2563eb" />
-        <StatCard label="Average Sale" value={currency(avgSale)} color="#3b82f6" />
-        <StatCard label="Repair Revenue" value={currency(repairRevenueGross)} color="#f59e0b" sub={periodRepairs.length > 0 ? `${periodRepairs.length} jobs` : ""} />
-        {repairPartsCost > 0 && <StatCard label="Repair Parts Cost" value={currency(repairPartsCost)} color="#ef4444" sub={`Profit: ${currency(repairProfit)}`} />}
+      {/* ═══════════════════════════════════════════════════════════
+          SECTION 1: HEADLINE NUMBERS
+          ═══════════════════════════════════════════════════════════ */}
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>📊 Headline Numbers</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+          <div style={{ background: "linear-gradient(135deg, #10b981, #059669)", borderRadius: 14, padding: 16, color: "#fff" }}>
+            <div style={{ fontSize: 11, opacity: 0.9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>💰 Total Intake</div>
+            <div style={{ fontSize: 26, fontWeight: 900, marginTop: 4 }}>{currency(totalIntake)}</div>
+            <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>Cash + Card combined</div>
+          </div>
+          <div style={{ background: "linear-gradient(135deg, #2563eb, #3b82f6)", borderRadius: 14, padding: 16, color: "#fff" }}>
+            <div style={{ fontSize: 11, opacity: 0.9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>📈 Net Profit</div>
+            <div style={{ fontSize: 26, fontWeight: 900, marginTop: 4 }}>{currency(profit)}</div>
+            <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>{profitMargin.toFixed(1)}% margin</div>
+          </div>
+          <div style={{ background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 14, padding: 16 }}>
+            <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>🛒 Sales Revenue</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#111827", marginTop: 4 }}>{currency(revenue)}</div>
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{filtered.length} transactions · {itemsSold} items</div>
+          </div>
+          <div style={{ background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 14, padding: 16 }}>
+            <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>🔧 Repair Revenue</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#111827", marginTop: 4 }}>{currency(repairRevenueGross)}</div>
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{periodRepairs.length} jobs completed</div>
+          </div>
+        </div>
       </div>
 
-      {/* Cash & Card Breakdown */}
-      <Card style={{ marginBottom: 20 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>💰 Cash & Card Breakdown</div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Net amounts (after refunds)</div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
-          <div style={{ background: "#10b98110", border: "1px solid #10b98140", borderRadius: 12, padding: 16 }}>
+      {/* ═══════════════════════════════════════════════════════════
+          SECTION 2: CASH vs CARD
+          ═══════════════════════════════════════════════════════════ */}
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>💳 Cash vs Card (Net, after refunds)</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div style={{ background: "#10b98110", border: "1px solid #10b98140", borderRadius: 14, padding: 18, textAlign: "center" }}>
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>💵 Cash In</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: "#10b981" }}>{currency(totalCashIn)}</div>
+            <div style={{ fontSize: 32, fontWeight: 900, color: "#10b981" }}>{currency(totalCashIn)}</div>
           </div>
-          <div style={{ background: "#2563eb10", border: "1px solid #2563eb40", borderRadius: 12, padding: 16 }}>
+          <div style={{ background: "#2563eb10", border: "1px solid #2563eb40", borderRadius: 14, padding: 18, textAlign: "center" }}>
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>💳 Card In</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: "#2563eb" }}>{currency(totalCardIn)}</div>
-          </div>
-          <div style={{ background: "linear-gradient(135deg, #2563eb15, #3b82f615)", border: "2px solid #2563eb", borderRadius: 12, padding: 16 }}>
-            <div style={{ fontSize: 12, color: "#374151", marginBottom: 4, fontWeight: 600 }}>💼 Total Intake</div>
-            <div style={{ fontSize: 28, fontWeight: 900, color: "#111827" }}>{currency(totalIntake)}</div>
+            <div style={{ fontSize: 32, fontWeight: 900, color: "#2563eb" }}>{currency(totalCardIn)}</div>
           </div>
         </div>
 
-        {/* Detailed split */}
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
-          <thead>
-            <tr style={{ borderBottom: "2px solid #d4d8e0", color: "#6b7280", textAlign: "left" }}>
-              <th style={{ padding: "8px 4px" }}>Source</th>
-              <th style={{ padding: "8px 4px", textAlign: "right" }}>Cash</th>
-              <th style={{ padding: "8px 4px", textAlign: "right" }}>Card</th>
-              <th style={{ padding: "8px 4px", textAlign: "right" }}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
-              <td style={{ padding: "8px 4px", color: "#374151", fontWeight: 600 }}>Sales (gross)</td>
-              <td style={{ padding: "8px 4px", textAlign: "right", color: "#10b981" }}>{currency(salesCash)}</td>
-              <td style={{ padding: "8px 4px", textAlign: "right", color: "#2563eb" }}>{currency(salesCard)}</td>
-              <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{currency(salesCash + salesCard)}</td>
-            </tr>
-            {totalRefunds > 0 && (
-              <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
-                <td style={{ padding: "8px 4px", color: "#ef4444", fontWeight: 600 }}>Refunds</td>
-                <td style={{ padding: "8px 4px", textAlign: "right", color: "#ef4444" }}>-{currency(salesCashRefunded)}</td>
-                <td style={{ padding: "8px 4px", textAlign: "right", color: "#ef4444" }}>-{currency(salesCardRefunded)}</td>
-                <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#ef4444" }}>-{currency(totalRefunds)}</td>
-              </tr>
-            )}
-            <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
-              <td style={{ padding: "8px 4px", color: "#374151", fontWeight: 600 }}>Repairs (completed)</td>
-              <td style={{ padding: "8px 4px", textAlign: "right", color: "#10b981" }}>{currency(repairCash)}</td>
-              <td style={{ padding: "8px 4px", textAlign: "right", color: "#2563eb" }}>{currency(repairCard)}</td>
-              <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{currency(repairCash + repairCard)}</td>
-            </tr>
-            {totalDepositsIn > 0 && (
-              <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
-                <td style={{ padding: "8px 4px", color: "#374151", fontWeight: 600 }}>Deposit Payments</td>
-                <td style={{ padding: "8px 4px", textAlign: "right", color: "#10b981" }}>{currency(depositCashIn)}</td>
-                <td style={{ padding: "8px 4px", textAlign: "right", color: "#2563eb" }}>{currency(depositCardIn)}</td>
-                <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{currency(totalDepositsIn)}</td>
-              </tr>
-            )}
-            {totalTradeInSpend > 0 && (
-              <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
-                <td style={{ padding: "8px 4px", color: "#f59e0b", fontWeight: 600 }}>Trade-In Payouts {tradeInBankOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>(+ {currency(tradeInBankOut)} bank)</span>}{tradeInCreditOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}> (+ {currency(tradeInCreditOut)} store credit)</span>}</td>
-                <td style={{ padding: "8px 4px", textAlign: "right", color: "#f59e0b" }}>-{currency(tradeInCashOut)}</td>
-                <td style={{ padding: "8px 4px", textAlign: "right", color: "#9ca3af" }}>—</td>
-                <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#f59e0b" }}>-{currency(tradeInCashOut)}</td>
-              </tr>
-            )}
-            <tr style={{ borderTop: "2px solid #111827" }}>
-              <td style={{ padding: "10px 4px", fontWeight: 800, color: "#111827", fontSize: 14 }}>NET TOTAL</td>
-              <td style={{ padding: "10px 4px", textAlign: "right", fontWeight: 800, color: "#10b981", fontSize: 14 }}>{currency(totalCashIn)}</td>
-              <td style={{ padding: "10px 4px", textAlign: "right", fontWeight: 800, color: "#2563eb", fontSize: 14 }}>{currency(totalCardIn)}</td>
-              <td style={{ padding: "10px 4px", textAlign: "right", fontWeight: 900, color: "#111827", fontSize: 16 }}>{currency(totalIntake)}</td>
-            </tr>
-          </tbody>
-        </table>
-      </Card>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {/* Detailed breakdown table */}
         <Card>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 14 }}>Revenue (Last 7 Days)</div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 140 }}>
-            {Object.entries(dailyRev).map(([day, val]) => (
-              <div key={day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                <div style={{ fontSize: 10, color: "#3b82f6", fontWeight: 700 }}>{val > 0 ? `£${Math.round(val)}` : ""}</div>
-                <div style={{ width: "100%", borderRadius: "6px 6px 0 0", background: "linear-gradient(180deg, #2563eb, #3b82f6)", height: `${Math.max((val / maxDailyRev) * 120, 4)}px`, transition: "height 0.3s" }} />
-                <div style={{ fontSize: 10, color: "#9ca3af" }}>{day.slice(5)}</div>
+          <details>
+            <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#2563eb", padding: "4px 0", listStyle: "none" }}>📋 See breakdown by source ▾</summary>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif", marginTop: 10 }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid #d4d8e0", color: "#6b7280", textAlign: "left" }}>
+                  <th style={{ padding: "8px 4px" }}>Source</th>
+                  <th style={{ padding: "8px 4px", textAlign: "right" }}>Cash</th>
+                  <th style={{ padding: "8px 4px", textAlign: "right" }}>Card</th>
+                  <th style={{ padding: "8px 4px", textAlign: "right" }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                  <td style={{ padding: "8px 4px", color: "#374151", fontWeight: 600 }}>Sales (gross)</td>
+                  <td style={{ padding: "8px 4px", textAlign: "right", color: "#10b981" }}>{currency(salesCash)}</td>
+                  <td style={{ padding: "8px 4px", textAlign: "right", color: "#2563eb" }}>{currency(salesCard)}</td>
+                  <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{currency(salesCash + salesCard)}</td>
+                </tr>
+                {totalRefunds > 0 && (
+                  <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                    <td style={{ padding: "8px 4px", color: "#ef4444", fontWeight: 600 }}>Refunds</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#ef4444" }}>-{currency(salesCashRefunded)}</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#ef4444" }}>-{currency(salesCardRefunded)}</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#ef4444" }}>-{currency(totalRefunds)}</td>
+                  </tr>
+                )}
+                <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                  <td style={{ padding: "8px 4px", color: "#374151", fontWeight: 600 }}>Repairs (completed)</td>
+                  <td style={{ padding: "8px 4px", textAlign: "right", color: "#10b981" }}>{currency(repairCash)}</td>
+                  <td style={{ padding: "8px 4px", textAlign: "right", color: "#2563eb" }}>{currency(repairCard)}</td>
+                  <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{currency(repairCash + repairCard)}</td>
+                </tr>
+                {totalDepositsIn > 0 && (
+                  <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                    <td style={{ padding: "8px 4px", color: "#374151", fontWeight: 600 }}>Deposit Payments</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#10b981" }}>{currency(depositCashIn)}</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#2563eb" }}>{currency(depositCardIn)}</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{currency(totalDepositsIn)}</td>
+                  </tr>
+                )}
+                {totalTradeInSpend > 0 && (
+                  <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                    <td style={{ padding: "8px 4px", color: "#f59e0b", fontWeight: 600 }}>Trade-In Payouts {tradeInBankOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>(+ {currency(tradeInBankOut)} bank)</span>}{tradeInCreditOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}> (+ {currency(tradeInCreditOut)} store credit)</span>}</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#f59e0b" }}>-{currency(tradeInCashOut)}</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#9ca3af" }}>—</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#f59e0b" }}>-{currency(tradeInCashOut)}</td>
+                  </tr>
+                )}
+                <tr style={{ borderTop: "2px solid #111827" }}>
+                  <td style={{ padding: "10px 4px", fontWeight: 800, color: "#111827", fontSize: 14 }}>NET TOTAL</td>
+                  <td style={{ padding: "10px 4px", textAlign: "right", fontWeight: 800, color: "#10b981", fontSize: 14 }}>{currency(totalCashIn)}</td>
+                  <td style={{ padding: "10px 4px", textAlign: "right", fontWeight: 800, color: "#2563eb", fontSize: 14 }}>{currency(totalCardIn)}</td>
+                  <td style={{ padding: "10px 4px", textAlign: "right", fontWeight: 900, color: "#111827", fontSize: 16 }}>{currency(totalIntake)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </details>
+        </Card>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════
+          SECTION 3: TRENDS & TOP PRODUCTS
+          ═══════════════════════════════════════════════════════════ */}
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>📈 Trends & Best Sellers</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <Card>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 14 }}>Revenue · Last 7 Days</div>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 140 }}>
+              {Object.entries(dailyRev).map(([day, val]) => (
+                <div key={day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                  <div style={{ fontSize: 10, color: "#3b82f6", fontWeight: 700 }}>{val > 0 ? `£${Math.round(val)}` : ""}</div>
+                  <div style={{ width: "100%", borderRadius: "6px 6px 0 0", background: "linear-gradient(180deg, #2563eb, #3b82f6)", height: `${Math.max((val / maxDailyRev) * 120, 4)}px`, transition: "height 0.3s" }} />
+                  <div style={{ fontSize: 10, color: "#9ca3af" }}>{day.slice(5)}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+          <Card>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 14 }}>Top Selling Products</div>
+            {topProducts.length === 0 && <div style={{ color: "#9ca3af", fontSize: 13 }}>No sales data yet</div>}
+            {topProducts.map(([name, qty], i) => (
+              <div key={name} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <span style={{ width: 22, height: 22, borderRadius: 6, background: `${["#2563eb", "#3b82f6", "#a855f7", "#c084fc", "#d8b4fe"][i]}33`, color: ["#2563eb", "#3b82f6", "#a855f7", "#c084fc", "#d8b4fe"][i], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{i + 1}</span>
+                <span style={{ flex: 1, fontSize: 13, color: "#374151" }}>{name}</span>
+                <Badge color="#3b82f6">{qty} sold</Badge>
               </div>
             ))}
-          </div>
-        </Card>
+          </Card>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════
+          SECTION 4: ITEMS SOLD
+          ═══════════════════════════════════════════════════════════ */}
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>🛒 Items Sold {filtered.length > 0 && <span style={{ color: "#9ca3af", fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {filtered.length} sale{filtered.length !== 1 ? "s" : ""}</span>}</div>
         <Card>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 14 }}>Top Selling Products</div>
-          {topProducts.length === 0 && <div style={{ color: "#9ca3af", fontSize: 13 }}>No sales data yet</div>}
-          {topProducts.map(([name, qty], i) => (
-            <div key={name} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <span style={{ width: 22, height: 22, borderRadius: 6, background: `${["#2563eb", "#3b82f6", "#a855f7", "#c084fc", "#d8b4fe"][i]}33`, color: ["#2563eb", "#3b82f6", "#a855f7", "#c084fc", "#d8b4fe"][i], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{i + 1}</span>
-              <span style={{ flex: 1, fontSize: 13, color: "#374151" }}>{name}</span>
-              <Badge color="#3b82f6">{qty} sold</Badge>
-            </div>
-          ))}
-        </Card>
-        <Card style={{ gridColumn: "1/-1" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 14 }}>Recent Sales</div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
             <thead>
               <tr style={{ borderBottom: "2px solid #d4d8e0", color: "#6b7280", textAlign: "left" }}>
-                <th style={{ padding: "8px" }}>Date</th><th style={{ padding: "8px" }}>Items</th><th style={{ padding: "8px" }}>Variant / IMEI</th><th style={{ padding: "8px", textAlign: "right" }}>Total</th>
+                <th style={{ padding: "8px" }}>Date</th>
+                <th style={{ padding: "8px" }}>Items</th>
+                <th style={{ padding: "8px" }}>Variant / IMEI</th>
+                <th style={{ padding: "8px", textAlign: "right" }}>Total</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.slice(-10).reverse().map(s => (
+              {filtered.slice(-20).reverse().map(s => (
                 <tr key={s.id} style={{ borderBottom: "1px solid #e5e7eb", color: "#374151" }}>
-                  <td style={{ padding: "8px" }}>{new Date(s.date).toLocaleString()}</td>
-                  <td style={{ padding: "8px" }}>{s.items.map(i => `${i.qty}x ${i.name}`).join(", ")}</td>
+                  <td style={{ padding: "8px", whiteSpace: "nowrap" }}>{new Date(s.date).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
+                  <td style={{ padding: "8px" }}>{s.items.map(i => `${i.qty}× ${i.name}`).join(", ")}</td>
                   <td style={{ padding: "8px", fontSize: 11 }}>
                     {s.items.filter(i => i.imei).map((i, idx) => (
                       <div key={idx} style={{ marginBottom: 2 }}>
@@ -4550,7 +4604,50 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
                   <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: "#10b981" }}>{currency(s.total)}</td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>No sales recorded yet</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>No sales in this period</td></tr>}
+            </tbody>
+          </table>
+        </Card>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════
+          SECTION 5: REPAIRS COMPLETED
+          ═══════════════════════════════════════════════════════════ */}
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>🔧 Repairs Completed {periodRepairs.length > 0 && <span style={{ color: "#9ca3af", fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {periodRepairs.length} job{periodRepairs.length !== 1 ? "s" : ""}</span>}</div>
+        <Card>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
+            <thead>
+              <tr style={{ borderBottom: "2px solid #d4d8e0", color: "#6b7280", textAlign: "left" }}>
+                <th style={{ padding: "8px" }}>Date</th>
+                <th style={{ padding: "8px" }}>Device</th>
+                <th style={{ padding: "8px" }}>Fault / IMEI</th>
+                <th style={{ padding: "8px" }}>Parts Used</th>
+                <th style={{ padding: "8px", textAlign: "right" }}>Charged</th>
+                <th style={{ padding: "8px", textAlign: "right" }}>Profit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {periodRepairs.slice(-20).reverse().map(r => {
+                const partsCost = r.partsCost || 0;
+                const repairProf = (r.cost || 0) - partsCost;
+                return (
+                  <tr key={r.id} style={{ borderBottom: "1px solid #e5e7eb", color: "#374151" }}>
+                    <td style={{ padding: "8px", whiteSpace: "nowrap" }}>{r.completedDate ? new Date(r.completedDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : new Date(r.dateIn).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</td>
+                    <td style={{ padding: "8px", fontWeight: 600 }}>{r.device}</td>
+                    <td style={{ padding: "8px", fontSize: 11 }}>
+                      <div style={{ color: "#6b7280" }}>{r.issue}</div>
+                      {r.imei && <div style={{ fontFamily: "monospace", color: "#f59e0b", marginTop: 2 }}>{r.imei}</div>}
+                    </td>
+                    <td style={{ padding: "8px", fontSize: 11, color: "#6b7280" }}>
+                      {(r.partsUsed || []).length === 0 ? <span style={{ color: "#9ca3af" }}>—</span> : r.partsUsed.map(p => `${p.qty || 1}× ${p.name}`).join(", ")}
+                    </td>
+                    <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: "#10b981" }}>{currency(r.cost || 0)}</td>
+                    <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: repairProf > 0 ? "#2563eb" : "#ef4444" }}>{currency(repairProf)}</td>
+                  </tr>
+                );
+              })}
+              {periodRepairs.length === 0 && <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>No repairs completed in this period</td></tr>}
             </tbody>
           </table>
         </Card>
