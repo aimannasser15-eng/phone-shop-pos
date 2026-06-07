@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import * as XLSX from "xlsx";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs, deleteDoc } from "firebase/firestore";
 
 // ─── Firebase Configuration ─────────────────────────────────────────
 const firebaseConfig = {
@@ -650,6 +650,69 @@ const subscribeData = (key, callback) => {
     console.error(`Failed to subscribe to ${key}:`, e);
     return () => {};
   }
+};
+
+// ─── Per-document Collection Helpers ──────────────────────────────
+// For data that MUST never be lost when 2 devices write at once (sales, repairs),
+// we store each item as its own Firestore document. This prevents race conditions
+// where one device's whole-array save overwrites another's.
+
+// Load all docs from a collection as an array
+const loadCollection = async (collectionName) => {
+  try {
+    const snap = await getDocs(collection(db, collectionName));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) { console.error(`Load collection ${collectionName}:`, e); return []; }
+};
+
+// Save a single item to its own doc (use item.id as doc id)
+const saveItem = async (collectionName, item) => {
+  if (!item?.id) { console.error(`saveItem: item missing id for ${collectionName}`); return; }
+  try { await setDoc(doc(db, collectionName, item.id), { ...item, _deviceId: DEVICE_ID, _updatedAt: new Date().toISOString() }); }
+  catch (e) { console.error(`Save item to ${collectionName}:`, e); }
+};
+
+// Delete an item by id
+const deleteItem = async (collectionName, id) => {
+  if (!id) return;
+  try { await deleteDoc(doc(db, collectionName, id)); }
+  catch (e) { console.error(`Delete item from ${collectionName}:`, e); }
+};
+
+// Subscribe to all docs in a collection — fires when ANY doc changes
+const subscribeCollection = (collectionName, callback) => {
+  try {
+    return onSnapshot(collection(db, collectionName), (snap) => {
+      const items = snap.docs.map(d => {
+        const data = d.data();
+        // Strip internal sync metadata before returning
+        const { _deviceId, _updatedAt, ...rest } = data;
+        return { id: d.id, ...rest };
+      });
+      callback(items);
+    }, (err) => console.error(`Collection snapshot error for ${collectionName}:`, err));
+  } catch (e) {
+    console.error(`Failed to subscribe to collection ${collectionName}:`, e);
+    return () => {};
+  }
+};
+
+// Diff two arrays of items by id — returns which items to save/delete
+const diffArrays = (oldArr, newArr) => {
+  const oldMap = new Map((oldArr || []).map(x => [x.id, x]));
+  const newMap = new Map((newArr || []).map(x => [x.id, x]));
+  const toSave = [];
+  const toDelete = [];
+  // Find new or changed items
+  for (const item of newArr || []) {
+    const prev = oldMap.get(item.id);
+    if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) toSave.push(item);
+  }
+  // Find deleted items
+  for (const item of oldArr || []) {
+    if (!newMap.has(item.id)) toDelete.push(item.id);
+  }
+  return { toSave, toDelete };
 };
 
 // ─── Reusable Components ────────────────────────────────────────────
@@ -4983,50 +5046,105 @@ function MainApp({ user }) {
   const [loaded, setLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Track previous arrays so we can diff and only save what changed
+  const prevRef = useRef({ products: [], sales: [], customers: [], repairs: [], tradeIns: [], deposits: [], deletionLogs: [], staff: [] });
+
   useEffect(() => {
     (async () => {
+      // First check if we've migrated to the new per-document storage yet
+      const migrationSnap = await getDoc(doc(db, "shop", "migration-v2"));
+      const migrated = migrationSnap.exists() && migrationSnap.data().done === true;
+
+      if (!migrated) {
+        // ─── ONE-TIME MIGRATION ─── Move data from single-doc storage to per-doc collections
+        console.log("🔄 Running one-time data migration to prevent sync race conditions...");
+        const [p, s, c, r, t, d, dl, st] = await Promise.all([
+          loadData("pos-products-v3", SAMPLE_PRODUCTS),
+          loadData("pos-sales-v3", []),
+          loadData("pos-customers-v3", []),
+          loadData("pos-repairs-v3", []),
+          loadData("pos-tradeins-v3", []),
+          loadData("pos-deposits-v1", []),
+          loadData("pos-deletion-logs-v1", []),
+          loadData("pos-staff-v1", []),
+        ]);
+        // Push each item as its own document in the new collections
+        await Promise.all([
+          ...p.map(x => x.id ? saveItem("products", x) : null).filter(Boolean),
+          ...s.map(x => x.id ? saveItem("sales", x) : null).filter(Boolean),
+          ...c.map(x => x.id ? saveItem("customers", x) : null).filter(Boolean),
+          ...r.map(x => x.id ? saveItem("repairs", x) : null).filter(Boolean),
+          ...t.map(x => x.id ? saveItem("tradeIns", x) : null).filter(Boolean),
+          ...d.map(x => x.id ? saveItem("deposits", x) : null).filter(Boolean),
+          ...dl.map(x => x.id ? saveItem("deletionLogs", x) : null).filter(Boolean),
+          ...st.map(x => x.id ? saveItem("staff", x) : null).filter(Boolean),
+        ]);
+        await setDoc(doc(db, "shop", "migration-v2"), { done: true, date: new Date().toISOString() });
+        console.log("✅ Migration complete");
+      }
+
+      // Load from new per-doc collections
       const [p, s, c, r, t, d, dl, st] = await Promise.all([
-        loadData("pos-products-v3", SAMPLE_PRODUCTS),
-        loadData("pos-sales-v3", []),
-        loadData("pos-customers-v3", []),
-        loadData("pos-repairs-v3", []),
-        loadData("pos-tradeins-v3", []),
-        loadData("pos-deposits-v1", []),
-        loadData("pos-deletion-logs-v1", []),
-        loadData("pos-staff-v1", []),
+        loadCollection("products"),
+        loadCollection("sales"),
+        loadCollection("customers"),
+        loadCollection("repairs"),
+        loadCollection("tradeIns"),
+        loadCollection("deposits"),
+        loadCollection("deletionLogs"),
+        loadCollection("staff"),
       ]);
-      setProducts(p); setSales(s); setCustomers(c); setRepairs(r); setTradeIns(t); setDeposits(d); setDeletionLogs(dl); setStaff(st);
+      // Fall back to sample products if products collection is empty (fresh install)
+      const finalProducts = p.length > 0 ? p : SAMPLE_PRODUCTS;
+      setProducts(finalProducts); setSales(s); setCustomers(c); setRepairs(r); setTradeIns(t); setDeposits(d); setDeletionLogs(dl); setStaff(st);
+      prevRef.current = { products: finalProducts, sales: s, customers: c, repairs: r, tradeIns: t, deposits: d, deletionLogs: dl, staff: st };
       setLoaded(true);
     })();
   }, []);
 
-  // ─── Real-time sync across devices ──────────────────────────────────
-  // After initial load, subscribe to live updates from Firestore.
-  // When another iPad makes a change, it pushes to all other devices within ~1s.
-  // Each device ignores its own writes (via DEVICE_ID check inside subscribeData).
+  // ─── Real-time sync across devices (per-document, race-condition-free) ──────
+  // Each item lives in its own Firestore document, so two devices saving different
+  // items at the same time will never overwrite each other. When ANY doc in a
+  // collection changes, this device receives just the change set.
   useEffect(() => {
     if (!loaded) return;
     const unsubs = [
-      subscribeData("pos-products-v3", v => setProducts(v || [])),
-      subscribeData("pos-sales-v3", v => setSales(v || [])),
-      subscribeData("pos-customers-v3", v => setCustomers(v || [])),
-      subscribeData("pos-repairs-v3", v => setRepairs(v || [])),
-      subscribeData("pos-tradeins-v3", v => setTradeIns(v || [])),
-      subscribeData("pos-deposits-v1", v => setDeposits(v || [])),
-      subscribeData("pos-deletion-logs-v1", v => setDeletionLogs(v || [])),
-      subscribeData("pos-staff-v1", v => setStaff(v || [])),
+      subscribeCollection("products", items => { setProducts(items); prevRef.current.products = items; }),
+      subscribeCollection("sales", items => { setSales(items); prevRef.current.sales = items; }),
+      subscribeCollection("customers", items => { setCustomers(items); prevRef.current.customers = items; }),
+      subscribeCollection("repairs", items => { setRepairs(items); prevRef.current.repairs = items; }),
+      subscribeCollection("tradeIns", items => { setTradeIns(items); prevRef.current.tradeIns = items; }),
+      subscribeCollection("deposits", items => { setDeposits(items); prevRef.current.deposits = items; }),
+      subscribeCollection("deletionLogs", items => { setDeletionLogs(items); prevRef.current.deletionLogs = items; }),
+      subscribeCollection("staff", items => { setStaff(items); prevRef.current.staff = items; }),
     ];
     return () => unsubs.forEach(u => u && u());
   }, [loaded]);
 
-  useEffect(() => { if (loaded) saveData("pos-products-v3", products); }, [products, loaded]);
-  useEffect(() => { if (loaded) saveData("pos-sales-v3", sales); }, [sales, loaded]);
-  useEffect(() => { if (loaded) saveData("pos-customers-v3", customers); }, [customers, loaded]);
-  useEffect(() => { if (loaded) saveData("pos-repairs-v3", repairs); }, [repairs, loaded]);
-  useEffect(() => { if (loaded) saveData("pos-tradeins-v3", tradeIns); }, [tradeIns, loaded]);
-  useEffect(() => { if (loaded) saveData("pos-deposits-v1", deposits); }, [deposits, loaded]);
-  useEffect(() => { if (loaded) saveData("pos-deletion-logs-v1", deletionLogs); }, [deletionLogs, loaded]);
-  useEffect(() => { if (loaded) saveData("pos-staff-v1", staff); }, [staff, loaded]);
+  // ─── Save changed items to Firestore ────────────────────────────────
+  // Diff against previous state and only write what changed. This means:
+  //   - New sale → only that one sale doc gets written (atomic, race-free)
+  //   - Edited customer → only that one customer doc gets written
+  //   - Deleted product → that one doc gets deleted
+  // No more "write the whole array and risk overwriting another device's work".
+  const syncCollection = (collectionName, current, prevKey) => {
+    const prev = prevRef.current[prevKey] || [];
+    const { toSave, toDelete } = diffArrays(prev, current);
+    if (toSave.length === 0 && toDelete.length === 0) return;
+    Promise.all([
+      ...toSave.map(item => saveItem(collectionName, item)),
+      ...toDelete.map(id => deleteItem(collectionName, id)),
+    ]).then(() => { prevRef.current[prevKey] = current; });
+  };
+
+  useEffect(() => { if (loaded) syncCollection("products", products, "products"); }, [products, loaded]);
+  useEffect(() => { if (loaded) syncCollection("sales", sales, "sales"); }, [sales, loaded]);
+  useEffect(() => { if (loaded) syncCollection("customers", customers, "customers"); }, [customers, loaded]);
+  useEffect(() => { if (loaded) syncCollection("repairs", repairs, "repairs"); }, [repairs, loaded]);
+  useEffect(() => { if (loaded) syncCollection("tradeIns", tradeIns, "tradeIns"); }, [tradeIns, loaded]);
+  useEffect(() => { if (loaded) syncCollection("deposits", deposits, "deposits"); }, [deposits, loaded]);
+  useEffect(() => { if (loaded) syncCollection("deletionLogs", deletionLogs, "deletionLogs"); }, [deletionLogs, loaded]);
+  useEffect(() => { if (loaded) syncCollection("staff", staff, "staff"); }, [staff, loaded]);
 
   const resetAll = async () => {
     if (!confirm("Reset ALL data? This cannot be undone.")) return;
