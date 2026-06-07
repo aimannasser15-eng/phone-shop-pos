@@ -742,7 +742,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomer
   const [receiptCustEmail, setReceiptCustEmail] = useState("");
   const [receiptCustSaved, setReceiptCustSaved] = useState(false);
   const [discount, setDiscount] = useState(0);
-  const [payMethod, setPayMethod] = useState("cash"); // cash, card, mix
+  const [payMethod, setPayMethod] = useState(""); // "", "cash", "card", "mix" - empty forces staff to choose
   const [cashAmount, setCashAmount] = useState("");
   const [imeiPicker, setImeiPicker] = useState(null);
   const [posCatFilter, setPosCatFilter] = useState("All");
@@ -863,6 +863,14 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomer
 
   const checkout = () => {
     if (cart.length === 0) return;
+    if (!payMethod) {
+      alert("Please select a payment method (Cash, Card, or Split) before completing the sale.");
+      return;
+    }
+    if (payMethod === "mix" && (!cashAmount || +cashAmount <= 0)) {
+      alert("Please enter the cash amount for split payment.");
+      return;
+    }
     const sale = {
       id: uid(),
       items: cart.map(c => ({ productId: c.productId, name: c.name, qty: c.qty, price: c.price, cost: c.cost ?? 0, imei: c.imei || "", unitId: c.unitId || "", color: c.color || "", storage: c.storage || "", grade: c.grade || "", notes: c.notes || "" })),
@@ -889,7 +897,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomer
     setShowReceipt(sale);
     setCart([]);
     setDiscount(0);
-    setPayMethod("cash");
+    setPayMethod("");
     setCashAmount("");
     setSelCustomer("");
     // Reset to category tiles view for next sale
@@ -1044,17 +1052,35 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomer
         </div>
         <Input label="Discount (£)" type="number" min={0} value={discount} onChange={e => setDiscount(Math.max(0, +e.target.value))} />
 
-        {/* Payment Method */}
+        {/* Payment Method — required, no default. Visually prominent. */}
         <div style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Payment Method</label>
-          <div style={{ display: "flex", gap: 6 }}>
-            {[["cash", "💵 Cash"], ["card", "💳 Card"], ["mix", "🔀 Split"]].map(([val, label]) => (
-              <button key={val} onClick={() => { setPayMethod(val); if (val !== "mix") setCashAmount(""); }}
-                style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${payMethod === val ? "#2563eb" : "#d4d8e0"}`, background: payMethod === val ? "#2563eb15" : "transparent", color: payMethod === val ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
-            ))}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <label style={{ fontSize: 12, color: payMethod ? "#6b7280" : "#ef4444", fontFamily: "'DM Sans', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{payMethod ? "Payment Method" : "⚠️ Select Payment Method"}</label>
+            {!payMethod && cart.length > 0 && <span style={{ fontSize: 10, color: "#ef4444", fontWeight: 700, background: "#fef2f2", padding: "2px 8px", borderRadius: 10, border: "1px solid #fecaca" }}>REQUIRED</span>}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[["cash", "💵", "Cash"], ["card", "💳", "Card"], ["mix", "🔀", "Split"]].map(([val, icon, label]) => {
+              const active = payMethod === val;
+              return (
+                <button key={val} onClick={() => { setPayMethod(val); if (val !== "mix") setCashAmount(""); }}
+                  style={{
+                    flex: 1, padding: "14px 4px", borderRadius: 12,
+                    border: active ? "2px solid #2563eb" : (!payMethod && cart.length > 0 ? "2px dashed #ef4444" : "2px solid #d4d8e0"),
+                    background: active ? "linear-gradient(135deg, #2563eb, #3b82f6)" : "#ffffff",
+                    color: active ? "#ffffff" : "#6b7280",
+                    cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans', sans-serif",
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+                    transition: "all 0.15s",
+                    boxShadow: active ? "0 4px 12px rgba(37, 99, 235, 0.25)" : "none"
+                  }}>
+                  <span style={{ fontSize: 22, lineHeight: 1 }}>{icon}</span>
+                  <span>{label}</span>
+                </button>
+              );
+            })}
           </div>
           {payMethod === "mix" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
               <Input label="Cash (£)" type="number" min={0} value={cashAmount} onChange={e => setCashAmount(e.target.value)} style={{ marginBottom: 0 }} />
               <div>
                 <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif" }}>Card (£)</label>
@@ -1069,7 +1095,9 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomer
           {discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#ef4444", marginBottom: 4 }}><span>Discount</span><span>-{currency(discountAmt)}</span></div>}
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 20, fontWeight: 800, color: "#111827", marginTop: 6 }}><span>Total</span><span>{currency(total)}</span></div>
         </div>
-        <Btn onClick={checkout} disabled={cart.length === 0} variant="success" style={{ width: "100%", padding: "14px 0", fontSize: 16 }}>Complete Sale</Btn>
+        <Btn onClick={checkout} disabled={cart.length === 0 || !payMethod} variant="success" style={{ width: "100%", padding: "14px 0", fontSize: 16, opacity: (cart.length === 0 || !payMethod) ? 0.5 : 1 }}>
+          {!payMethod && cart.length > 0 ? "⚠️ Choose Payment Method First" : "Complete Sale"}
+        </Btn>
       </div>
 
       {/* IMEI Picker */}
@@ -4467,14 +4495,19 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
           ═══════════════════════════════════════════════════════════ */}
       <div style={{ marginBottom: 22 }}>
         <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>💳 Cash vs Card (Net, after refunds)</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
           <div style={{ background: "#10b98110", border: "1px solid #10b98140", borderRadius: 14, padding: 18, textAlign: "center" }}>
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>💵 Cash In</div>
-            <div style={{ fontSize: 32, fontWeight: 900, color: "#10b981" }}>{currency(totalCashIn)}</div>
+            <div style={{ fontSize: 28, fontWeight: 900, color: "#10b981" }}>{currency(totalCashIn)}</div>
           </div>
           <div style={{ background: "#2563eb10", border: "1px solid #2563eb40", borderRadius: 14, padding: 18, textAlign: "center" }}>
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>💳 Card In</div>
-            <div style={{ fontSize: 32, fontWeight: 900, color: "#2563eb" }}>{currency(totalCardIn)}</div>
+            <div style={{ fontSize: 28, fontWeight: 900, color: "#2563eb" }}>{currency(totalCardIn)}</div>
+          </div>
+          <div style={{ background: "linear-gradient(135deg, #2563eb, #10b981)", border: "2px solid #1d4ed8", borderRadius: 14, padding: 18, textAlign: "center", color: "#ffffff" }}>
+            <div style={{ fontSize: 12, opacity: 0.95, marginBottom: 4, fontWeight: 700 }}>💼 TOTAL INCOME</div>
+            <div style={{ fontSize: 30, fontWeight: 900 }}>{currency(totalIntake)}</div>
+            <div style={{ fontSize: 10, opacity: 0.85, marginTop: 2 }}>Cash + Card combined</div>
           </div>
         </div>
 
