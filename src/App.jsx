@@ -36,7 +36,7 @@ const CATEGORIES = ["Smartphones", "Laptops", "Tablets", "Accessories", "Cases",
 const PART_TYPES = ["LCD Screen", "Battery", "Charging Port", "Speaker", "Camera", "Back Glass", "Frame", "Other"];
 const SERIALIZED_CATEGORIES = ["Smartphones", "Laptops", "Tablets", "Audio"];
 const BRANDS = ["Apple", "Android", "Other"];
-const REPAIR_STATUSES = ["Received", "Diagnosing", "Waiting for Parts", "In Repair", "Testing", "Ready for Pickup", "Completed"];
+const REPAIR_STATUSES = ["Received", "Diagnosing", "Waiting for Parts", "In Repair", "Testing", "Ready for Pickup", "Completed", "Cancelled"];
 const GRADES = ["A", "B", "C", "D"];
 
 const currency = (n) => `£${Number(n || 0).toFixed(2)}`;
@@ -2497,7 +2497,8 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
   });
   const [showSMSSettings, setShowSMSSettings] = useState(false);
   const [repairView, setRepairView] = useState("groups"); // "groups" or "list"
-  const [repairGroup, setRepairGroup] = useState("active"); // "active" | "ready" | "completed"
+  const [repairGroup, setRepairGroup] = useState("active"); // "active" | "ready" | "completed" | "cancelled"
+  const [cancelModal, setCancelModal] = useState(null); // { repair, reason, refundAmount }
   const [completedDateRange, setCompletedDateRange] = useState("all"); // all, today, yesterday, 7days, week, month, lastmonth, custom
   const [customDateFrom, setCustomDateFrom] = useState("");
   const [customDateTo, setCustomDateTo] = useState("");
@@ -2697,6 +2698,8 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
       if (repairGroup === "active" && !ACTIVE_STATUSES.includes(r.status)) return false;
       if (repairGroup === "ready" && r.status !== "Ready for Pickup") return false;
       if (repairGroup === "completed" && r.status !== "Completed") return false;
+      if (repairGroup === "cancelled" && r.status !== "Cancelled") return false;
+      if (repairGroup === "all") { /* show everything */ }
     }
     // Date range filter — only for completed group
     if (repairView === "list" && repairGroup === "completed" && !repairSearch.trim() && completedDateRange !== "all") {
@@ -2718,12 +2721,13 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
       (r.issue || "").toLowerCase().includes(q) ||
       (cust && (cust.name.toLowerCase().includes(q) || (cust.phone || "").includes(repairSearch)));
   });
-  const statusColors = { "Received": "#2563eb", "Diagnosing": "#a855f7", "Waiting for Parts": "#f59e0b", "In Repair": "#3b82f6", "Testing": "#06b6d4", "Ready for Pickup": "#10b981", "Completed": "#6b7280" };
+  const statusColors = { "Received": "#2563eb", "Diagnosing": "#a855f7", "Waiting for Parts": "#f59e0b", "In Repair": "#3b82f6", "Testing": "#06b6d4", "Ready for Pickup": "#10b981", "Completed": "#6b7280", "Cancelled": "#ef4444" };
 
   // Group counts
   const activeCount = repairs.filter(r => ACTIVE_STATUSES.includes(r.status)).length;
   const readyCount = repairs.filter(r => r.status === "Ready for Pickup").length;
   const completedCount = repairs.filter(r => r.status === "Completed").length;
+  const cancelledCount = repairs.filter(r => r.status === "Cancelled").length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -2783,6 +2787,19 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
               <div style={{ fontSize: 14, color: "#6b7280" }}>{repairs.length} total</div>
               <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>Browse everything</div>
             </button>
+
+            {/* Cancelled tile - only show if any exist */}
+            {cancelledCount > 0 && (
+              <button onClick={() => { setRepairGroup("cancelled"); setStatusFilter("All"); setRepairView("list"); }}
+                style={{ background: "linear-gradient(145deg, #fef2f2, #fee2e2)", border: "2px solid #ef4444", borderRadius: 18, padding: "26px 18px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif", color: "#991b1b" }}
+                onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 8px 20px rgba(239, 68, 68, 0.2)"; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
+                <div style={{ fontSize: 44, lineHeight: 1 }}>🚫</div>
+                <div style={{ fontSize: 18, fontWeight: 800 }}>Cancelled</div>
+                <div style={{ fontSize: 14 }}>{cancelledCount} repair{cancelledCount !== 1 ? "s" : ""}</div>
+                <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Not going ahead</div>
+              </button>
+            )}
           </div>
 
           {repairs.length === 0 && (
@@ -2800,7 +2817,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
               ← Back to Groups
             </button>
             <div style={{ fontSize: 18, fontWeight: 800, color: "#111827", fontFamily: "'DM Sans', sans-serif" }}>
-              {repairSearch.trim() ? `🔍 Search: "${repairSearch}"` : repairGroup === "active" ? "🔧 Active Repairs" : repairGroup === "ready" ? "✅ Ready for Pickup" : repairGroup === "completed" ? "📋 Completed" : "📦 All Repairs"}
+              {repairSearch.trim() ? `🔍 Search: "${repairSearch}"` : repairGroup === "active" ? "🔧 Active Repairs" : repairGroup === "ready" ? "✅ Ready for Pickup" : repairGroup === "completed" ? "📋 Completed" : repairGroup === "cancelled" ? "🚫 Cancelled Repairs" : "📦 All Repairs"}
             </div>
             <div style={{ marginLeft: "auto", fontSize: 13, color: "#6b7280" }}>{filtered.length} repair{filtered.length !== 1 ? "s" : ""}</div>
             <Select options={["All", ...REPAIR_STATUSES]} value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: 200, marginBottom: 0 }} />
@@ -2865,7 +2882,15 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
                   <div style={{ display: "flex", gap: 10, fontSize: 11, color: "#9ca3af", marginTop: 2, flexWrap: "wrap" }}>
                     {r.dateIn && <span>📥 Received: {new Date(r.dateIn).toLocaleDateString("en-GB")}</span>}
                     {r.completedDate && r.status === "Completed" && <span style={{ color: "#10b981", fontWeight: 600 }}>✅ Completed: {new Date(r.completedDate).toLocaleDateString("en-GB")}</span>}
+                    {r.cancelledDate && r.status === "Cancelled" && <span style={{ color: "#ef4444", fontWeight: 600 }}>🚫 Cancelled: {new Date(r.cancelledDate).toLocaleDateString("en-GB")}</span>}
                   </div>
+                  {r.status === "Cancelled" && r.cancellationReason && (
+                    <div style={{ marginTop: 6, padding: "6px 10px", background: "#fef2f2", borderLeft: "3px solid #ef4444", borderRadius: 4, fontSize: 12, color: "#991b1b" }}>
+                      <strong>Cancellation reason:</strong> {r.cancellationReason}
+                      {r.refundIssued > 0 && <div style={{ marginTop: 2, fontSize: 11 }}>💷 Refund issued: £{r.refundIssued.toFixed(2)} {r.refundMethod && `(${r.refundMethod})`}</div>}
+                      {r.cancelledBy && <div style={{ marginTop: 2, fontSize: 11, color: "#6b7280" }}>Cancelled by {r.cancelledBy}</div>}
+                    </div>
+                  )}
                   {(r.partsUsed || []).length > 0 && (
                     <div style={{ fontSize: 11, color: r.partsDeducted ? "#10b981" : "#6b7280", marginTop: 4, fontWeight: 500 }}>
                       🔧 Parts: {r.partsUsed.map(p => `${p.qty || 1}× ${p.name}`).join(", ")}
@@ -2892,6 +2917,11 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
               <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", paddingTop: 10, borderTop: "1px solid #e5e7eb" }}>
                 <button onClick={e => { e.stopPropagation(); openEdit(r); }}
                   style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #6b7280", background: "#6b728015", color: "#374151", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>✏️ Edit</button>
+                {/* Cancel button — only shown for non-completed, non-cancelled repairs */}
+                {r.status !== "Completed" && r.status !== "Cancelled" && (
+                  <button onClick={e => { e.stopPropagation(); setCancelModal({ repair: r, reason: "", refundAmount: r.amountPaid || 0 }); }}
+                    style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #ef4444", background: "#ef444415", color: "#ef4444", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🚫 Cancel</button>
+                )}
                 <button onClick={e => { e.stopPropagation(); printReceipt({ type: "repair", data: r, customer: cust }); }}
                   style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #2563eb", background: "#2563eb15", color: "#2563eb", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🖨 Print Receipt</button>
                 {cust?.phone && <button onClick={e => { e.stopPropagation(); sendWhatsApp({ type: "repair", data: r, customer: cust }, cust?.phone); }}
@@ -3024,9 +3054,13 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
               <div style={{ fontSize: 11, color: "#1e40af", marginTop: 4 }}>Remaining on collection: <strong>£{Math.max(0, (+form.cost || 0) - (+form.amountPaid || 0)).toFixed(2)}</strong></div>
             </div>
           )}
-          {form.paymentStatus === "paid_in_full" && editing && (
-            <div style={{ marginTop: 8, fontSize: 11, color: "#10b981", fontWeight: 600 }}>
-              ✅ Marked paid in full {form.paidOnCollectionDate ? `on ${new Date(form.paidOnCollectionDate).toLocaleDateString("en-GB")}` : "today"}
+          {form.paymentStatus === "paid_in_full" && (
+            <div style={{ marginTop: 10 }}>
+              <label style={{ display: "block", fontSize: 12, color: "#1e40af", marginBottom: 5, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>📅 Date Customer Paid</label>
+              <input type="date" value={form.paidOnCollectionDate || today()} max={today()}
+                onChange={e => setForm({ ...form, paidOnCollectionDate: e.target.value })}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box" }} />
+              <div style={{ fontSize: 11, color: "#1e40af", marginTop: 4 }}>💡 This is when the customer actually paid — it will show in Reports for this date, not the booking date.</div>
             </div>
           )}
         </div>
@@ -3163,6 +3197,83 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
                   ))}
                 </div>
               )}
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* ─── Cancel Repair Modal ─── */}
+      <Modal open={!!cancelModal} onClose={() => setCancelModal(null)} title="🚫 Cancel Repair">
+        {cancelModal && (() => {
+          const r = cancelModal.repair;
+          const cust = customers.find(c => c.id === r.customer);
+          const paid = r.amountPaid || 0;
+          return (
+            <div>
+              <div style={{ background: "#fef2f2", border: "1px solid #ef4444", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#991b1b", marginBottom: 6 }}>⚠️ You are about to cancel:</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 2 }}>{r.device}</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Customer: {cust?.name || "—"} {cust?.phone && `· ${cust.phone}`}</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>Issue: {r.issue}</div>
+              </div>
+
+              <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>Reason for cancellation *</label>
+              <textarea value={cancelModal.reason} onChange={e => setCancelModal({ ...cancelModal, reason: e.target.value })}
+                placeholder="e.g. Customer changed their mind / Not worth fixing / Parts unavailable…"
+                style={{ width: "100%", minHeight: 70, padding: 10, borderRadius: 8, border: "1px solid #d4d8e0", fontSize: 13, fontFamily: "'DM Sans', sans-serif", color: "#1f2937", boxSizing: "border-box", resize: "vertical", marginBottom: 14 }} />
+
+              {paid > 0 && (
+                <div style={{ background: "#fff7ed", border: "1px solid #f59e0b", borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 6 }}>💷 Customer has already paid £{paid.toFixed(2)}</div>
+                  <label style={{ display: "block", fontSize: 11, color: "#92400e", marginBottom: 4 }}>Refund amount (£) — what to give back</label>
+                  <input type="number" min={0} max={paid} value={cancelModal.refundAmount}
+                    onChange={e => setCancelModal({ ...cancelModal, refundAmount: e.target.value })}
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #f59e0b", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", marginBottom: 8 }} />
+                  <label style={{ display: "block", fontSize: 11, color: "#92400e", marginBottom: 4 }}>Refund method</label>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {[["cash", "💵 Cash"], ["card", "💳 Card"], ["none", "🚫 None"]].map(([val, label]) => (
+                      <button key={val} type="button" onClick={() => setCancelModal({ ...cancelModal, refundMethod: val })}
+                        style={{ flex: 1, padding: "8px 0", borderRadius: 6, border: `1px solid ${cancelModal.refundMethod === val ? "#f59e0b" : "#d4d8e0"}`, background: cancelModal.refundMethod === val ? "#fff" : "transparent", color: cancelModal.refundMethod === val ? "#92400e" : "#6b7280", cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(r.partsUsed || []).length > 0 && r.partsDeducted && (
+                <div style={{ background: "#eff6ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 12, color: "#1e40af" }}>
+                  💡 <strong>Parts already deducted from stock:</strong> {r.partsUsed.map(p => `${p.qty || 1}× ${p.name}`).join(", ")}
+                  <div style={{ marginTop: 6, fontSize: 11 }}>These parts will be returned to inventory when you confirm.</div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14 }}>
+                <Btn variant="ghost" onClick={() => setCancelModal(null)}>Keep Repair</Btn>
+                <Btn variant="danger" disabled={!cancelModal.reason.trim() || (paid > 0 && !cancelModal.refundMethod)}
+                  onClick={() => {
+                    const refundAmount = +cancelModal.refundAmount || 0;
+                    // Return parts to stock if they were deducted
+                    if (r.partsDeducted && (r.partsUsed || []).length > 0) {
+                      setProducts(prev => prev.map(p => {
+                        const usedPart = r.partsUsed.find(u => u.productId === p.id);
+                        if (usedPart) return { ...p, stock: (p.stock || 0) + (usedPart.qty || 1) };
+                        return p;
+                      }));
+                    }
+                    // Mark repair as cancelled
+                    setRepairs(prev => prev.map(rep => rep.id === r.id ? {
+                      ...rep,
+                      status: "Cancelled",
+                      cancelledDate: new Date().toISOString(),
+                      cancellationReason: cancelModal.reason.trim(),
+                      refundIssued: refundAmount,
+                      refundMethod: cancelModal.refundMethod || "none",
+                      cancelledBy: activeStaff?.name || "",
+                      cancelledByStaffId: activeStaff?.id || "",
+                      partsDeducted: false, // mark as returned
+                    } : rep));
+                    setCancelModal(null);
+                  }}>🚫 Confirm Cancellation</Btn>
+              </div>
             </div>
           );
         })()}
@@ -4401,18 +4512,47 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
     });
   });
 
-  // Repairs (only completed ones count as income)
-  const periodRepairs = repairs.filter(r => r.status === "Completed" && filterDate(r.dateIn));
+  // Repairs — count income by payment-received date, not booking date.
+  // For Paid Upfront: counts on the booking date (dateIn).
+  // For Paid in Full / Partial: counts on paidOnCollectionDate (when payment was received).
+  // Cancelled repairs don't count as income (any refunds reduce the figure separately).
+  const allCompletedRepairs = repairs.filter(r => {
+    if (r.status === "Cancelled") return false;
+    return r.status === "Completed" || r.paymentStatus === "paid_in_full" || r.paymentStatus === "paid_upfront" || r.paymentStatus === "partial";
+  });
+  const periodRepairs = allCompletedRepairs.filter(r => {
+    const paymentDate = r.paymentStatus === "paid_upfront" ? r.dateIn : (r.paidOnCollectionDate || r.completedDate || r.dateIn);
+    return filterDate(paymentDate);
+  });
   let repairCash = 0, repairCard = 0, repairPartsCost = 0;
   periodRepairs.forEach(r => {
-    repairCash += (r.cashPaid || (r.payment === "cash" ? (r.cost || 0) : 0));
-    repairCard += (r.cardPaid || (r.payment === "card" ? (r.cost || 0) : 0));
+    // Use the actual amount paid for partial repairs, or the full cost for fully-paid ones
+    const amountToCount = (r.paymentStatus === "partial") ? (r.amountPaid || 0) : (r.cost || 0);
+    if (r.payment === "mix") {
+      // Split the proportionally if partial
+      const ratio = (r.cost || 0) > 0 ? amountToCount / (r.cost || 0) : 1;
+      repairCash += (r.cashPaid || 0) * ratio;
+      repairCard += (r.cardPaid || 0) * ratio;
+    } else if (r.payment === "card") {
+      repairCard += amountToCount;
+    } else {
+      repairCash += amountToCount;
+    }
     repairPartsCost += (r.partsCost || 0);
   });
-  const repairRevenueGross = periodRepairs.reduce((t, r) => t + (r.cost || 0), 0);
+  const repairRevenueGross = periodRepairs.reduce((t, r) => {
+    return t + ((r.paymentStatus === "partial") ? (r.amountPaid || 0) : (r.cost || 0));
+  }, 0);
   const repairProfit = repairRevenueGross - repairPartsCost;
 
-  // Trade-in payouts (money going OUT to customers)
+  // Repair cancellation refunds (money going OUT)
+  const periodCancelledRepairs = repairs.filter(r => r.status === "Cancelled" && filterDate(r.cancelledDate) && (r.refundIssued || 0) > 0);
+  let repairRefundCash = 0, repairRefundCard = 0;
+  periodCancelledRepairs.forEach(r => {
+    if (r.refundMethod === "cash") repairRefundCash += (r.refundIssued || 0);
+    else if (r.refundMethod === "card") repairRefundCard += (r.refundIssued || 0);
+  });
+  const totalRepairRefunds = repairRefundCash + repairRefundCard;
   const periodTradeIns = tradeIns.filter(t => filterDate(t.dateIn));
   let tradeInCashOut = 0, tradeInBankOut = 0, tradeInCreditOut = 0;
   periodTradeIns.forEach(t => {
@@ -4458,8 +4598,8 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
   // Net (after refunds AND trade-in payouts AND fixing deposit double-counting)
   const netSalesCash = salesCash - salesCashRefunded - depositDoubleCountCash;
   const netSalesCard = salesCard - salesCardRefunded - depositDoubleCountCard;
-  const totalCashIn = netSalesCash + repairCash + depositCashIn - tradeInCashOut;
-  const totalCardIn = netSalesCard + repairCard + depositCardIn;
+  const totalCashIn = netSalesCash + repairCash + depositCashIn - tradeInCashOut - repairRefundCash;
+  const totalCardIn = netSalesCard + repairCard + depositCardIn - repairRefundCard;
   const totalIntake = totalCashIn + totalCardIn;
   const totalRefunds = salesCashRefunded + salesCardRefunded;
 
@@ -4616,6 +4756,14 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
                     <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{currency(totalDepositsIn)}</td>
                   </tr>
                 )}
+                {totalRepairRefunds > 0 && (
+                  <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                    <td style={{ padding: "8px 4px", color: "#ef4444", fontWeight: 600 }}>Repair Cancellation Refunds</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#ef4444" }}>-{currency(repairRefundCash)}</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#ef4444" }}>-{currency(repairRefundCard)}</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#ef4444" }}>-{currency(totalRepairRefunds)}</td>
+                  </tr>
+                )}
                 {totalTradeInSpend > 0 && (
                   <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
                     <td style={{ padding: "8px 4px", color: "#f59e0b", fontWeight: 600 }}>Trade-In Payouts {tradeInBankOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>(+ {currency(tradeInBankOut)} bank)</span>}{tradeInCreditOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}> (+ {currency(tradeInCreditOut)} store credit)</span>}</td>
@@ -4726,10 +4874,17 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
             <tbody>
               {periodRepairs.slice(-20).reverse().map(r => {
                 const partsCost = r.partsCost || 0;
-                const repairProf = (r.cost || 0) - partsCost;
+                const amountPaid = (r.paymentStatus === "partial") ? (r.amountPaid || 0) : (r.cost || 0);
+                const repairProf = amountPaid - partsCost;
+                // Payment date — when the money was actually received
+                const paymentDate = r.paymentStatus === "paid_upfront" ? r.dateIn : (r.paidOnCollectionDate || r.completedDate || r.dateIn);
                 return (
                   <tr key={r.id} style={{ borderBottom: "1px solid #e5e7eb", color: "#374151" }}>
-                    <td style={{ padding: "8px", whiteSpace: "nowrap" }}>{r.completedDate ? new Date(r.completedDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : new Date(r.dateIn).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</td>
+                    <td style={{ padding: "8px", whiteSpace: "nowrap" }}>
+                      <div>{new Date(paymentDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</div>
+                      {r.paymentStatus === "paid_upfront" && <div style={{ fontSize: 10, color: "#10b981", fontWeight: 600 }}>💰 Upfront</div>}
+                      {r.paymentStatus === "paid_in_full" && r.dateIn !== r.paidOnCollectionDate && <div style={{ fontSize: 10, color: "#6b7280" }}>Booked {new Date(r.dateIn).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</div>}
+                    </td>
                     <td style={{ padding: "8px", fontWeight: 600 }}>{r.device}</td>
                     <td style={{ padding: "8px", fontSize: 11 }}>
                       <div style={{ color: "#6b7280" }}>{r.issue}</div>
@@ -4738,7 +4893,7 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
                     <td style={{ padding: "8px", fontSize: 11, color: "#6b7280" }}>
                       {(r.partsUsed || []).length === 0 ? <span style={{ color: "#9ca3af" }}>—</span> : r.partsUsed.map(p => `${p.qty || 1}× ${p.name}`).join(", ")}
                     </td>
-                    <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: "#10b981" }}>{currency(r.cost || 0)}</td>
+                    <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: "#10b981" }}>{currency(amountPaid)}</td>
                     <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: repairProf > 0 ? "#2563eb" : "#ef4444" }}>{currency(repairProf)}</td>
                   </tr>
                 );
