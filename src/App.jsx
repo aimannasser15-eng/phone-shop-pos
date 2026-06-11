@@ -43,6 +43,23 @@ const currency = (n) => `£${Number(n || 0).toFixed(2)}`;
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const today = () => new Date().toISOString().slice(0, 10);
 
+// ─── Mobile Detection Hook ────────────────────────────────────────
+// Returns true when the viewport is phone-sized (< 768px).
+// iPad mini portrait is 768px → uses desktop/tablet layout.
+// iPhone (any size) → uses mobile layout.
+// Listens to resize so rotating the device updates the UI immediately.
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth < 768);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", handler);
+    window.addEventListener("orientationchange", handler);
+    return () => { window.removeEventListener("resize", handler); window.removeEventListener("orientationchange", handler); };
+  }, []);
+  return isMobile;
+};
+
 // Auto-detect brand from product name (helps when adding new phones)
 const detectBrand = (name) => {
   if (!name) return "";
@@ -718,13 +735,26 @@ const diffArrays = (oldArr, newArr) => {
 // ─── Reusable Components ────────────────────────────────────────────
 
 const Modal = ({ open, onClose, title, children, wide }) => {
+  const isMobile = useIsMobile();
   if (!open) return null;
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.3)", backdropFilter: "blur(4px)" }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 16, padding: 28, width: wide ? 680 : 480, maxWidth: "94vw", maxHeight: "88vh", overflow: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.3)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 20, color: "#111827", fontFamily: "'DM Sans', sans-serif" }}>{title}</h2>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#999", fontSize: 22, cursor: "pointer", padding: 4 }}>✕</button>
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: isMobile ? "stretch" : "center", justifyContent: "center", background: "rgba(0,0,0,0.3)", backdropFilter: "blur(4px)" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "#ffffff",
+        border: isMobile ? "none" : "1px solid #d4d8e0",
+        borderRadius: isMobile ? 0 : 16,
+        padding: isMobile ? 18 : 28,
+        width: isMobile ? "100vw" : (wide ? 680 : 480),
+        maxWidth: isMobile ? "100vw" : "94vw",
+        maxHeight: isMobile ? "100vh" : "88vh",
+        minHeight: isMobile ? "100vh" : "auto",
+        overflow: "auto",
+        boxShadow: isMobile ? "none" : "0 24px 64px rgba(0,0,0,0.3)",
+        WebkitOverflowScrolling: "touch",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, position: isMobile ? "sticky" : "static", top: isMobile ? -18 : "auto", background: isMobile ? "#fff" : "transparent", paddingTop: isMobile ? 18 : 0, paddingBottom: isMobile ? 8 : 0, margin: isMobile ? "-18px -18px 12px -18px" : "0 0 20px 0", paddingLeft: isMobile ? 18 : 0, paddingRight: isMobile ? 18 : 0, zIndex: 2, borderBottom: isMobile ? "1px solid #e5e7eb" : "none" }}>
+          <h2 style={{ margin: 0, fontSize: isMobile ? 17 : 20, color: "#111827", fontFamily: "'DM Sans', sans-serif" }}>{title}</h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#999", fontSize: 26, cursor: "pointer", padding: 4, lineHeight: 1 }}>✕</button>
         </div>
         {children}
       </div>
@@ -795,6 +825,8 @@ const CATEGORY_ICONS = {
 };
 
 const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomers, activeStaff }) => {
+  const isMobile = useIsMobile();
+  const [cartSheetOpen, setCartSheetOpen] = useState(false); // mobile only — slides cart up from bottom
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState("");
   const [selCustomer, setSelCustomer] = useState("");
@@ -973,7 +1005,7 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomer
   const pickerUnits = imeiPicker ? (imeiPicker.units || []).filter(u => u.status === "in_stock" && !cartUnitIds.has(u.id)) : [];
 
   return (
-    <div style={{ display: "flex", gap: 20, height: "100%" }}>
+    <div style={{ display: "flex", gap: isMobile ? 0 : 20, height: "100%", position: "relative" }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         {/* Barcode Scanner Input */}
         <div style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "center" }}>
@@ -1087,7 +1119,50 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomer
         )}
       </div>
 
-      <div style={{ width: 340, flexShrink: 0, display: "flex", flexDirection: "column", background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 16, padding: 18 }}>
+      {/* Floating "View Cart" button on mobile (when cart sheet closed) */}
+      {isMobile && !cartSheetOpen && cart.length > 0 && (
+        <button onClick={() => setCartSheetOpen(true)}
+          style={{ position: "fixed", bottom: 20, left: 16, right: 16, padding: "16px 20px", borderRadius: 16, background: "linear-gradient(135deg, #059669, #10b981)", color: "#fff", border: "none", fontSize: 16, fontWeight: 800, cursor: "pointer", boxShadow: "0 8px 24px rgba(16, 185, 129, 0.4)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "space-between", fontFamily: "'DM Sans', sans-serif" }}>
+          <span>🛒 View Cart ({cart.reduce((s, c) => s + c.qty, 0)} {cart.reduce((s, c) => s + c.qty, 0) === 1 ? "item" : "items"})</span>
+          <span>{currency(total)} →</span>
+        </button>
+      )}
+
+      {/* Mobile cart backdrop */}
+      {isMobile && cartSheetOpen && (
+        <div onClick={() => setCartSheetOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 80, backdropFilter: "blur(2px)" }} />
+      )}
+
+      <div style={{
+        // Desktop/tablet: persistent right panel. Mobile: bottom sheet that slides up.
+        width: isMobile ? "100%" : 340,
+        flexShrink: 0,
+        display: "flex",
+        flexDirection: "column",
+        background: "#ffffff",
+        border: isMobile ? "none" : "1px solid #d4d8e0",
+        borderRadius: isMobile ? "20px 20px 0 0" : 16,
+        padding: 18,
+        // Mobile: fixed bottom sheet
+        position: isMobile ? "fixed" : "static",
+        bottom: isMobile ? 0 : "auto",
+        left: isMobile ? 0 : "auto",
+        right: isMobile ? 0 : "auto",
+        maxHeight: isMobile ? "85vh" : "none",
+        height: isMobile ? "85vh" : "auto",
+        zIndex: isMobile ? 90 : "auto",
+        transform: isMobile ? (cartSheetOpen ? "translateY(0)" : "translateY(100%)") : "none",
+        transition: isMobile ? "transform 0.3s" : "none",
+        boxShadow: isMobile && cartSheetOpen ? "0 -8px 32px rgba(0,0,0,0.2)" : "none",
+      }}>
+        {/* Drag handle on mobile + close button */}
+        {isMobile && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <div style={{ width: 40, height: 4, background: "#d4d8e0", borderRadius: 2, margin: "0 auto", position: "absolute", left: "50%", top: 8, transform: "translateX(-50%)" }} />
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setCartSheetOpen(false)} style={{ background: "none", border: "none", color: "#6b7280", fontSize: 26, cursor: "pointer", padding: 4, lineHeight: 1 }}>✕</button>
+          </div>
+        )}
         <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 12, fontFamily: "'DM Sans', sans-serif" }}>🛒 Cart ({cart.reduce((s, c) => s + c.qty, 0)})</div>
         <div style={{ flex: 1, overflowY: "auto", marginBottom: 12 }}>
           {cart.map(c => (
@@ -5237,7 +5312,10 @@ function MainApp({ user }) {
   // When switching staff, lock reports again
   useEffect(() => { setReportsUnlocked(false); }, [activeStaff?.id]);
   const [loaded, setLoaded] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(typeof window !== "undefined" ? window.innerWidth >= 768 : true);
+  const isMobile = useIsMobile();
+  // When switching between mobile/desktop, sync sidebar state appropriately
+  useEffect(() => { if (!isMobile) setSidebarOpen(true); else setSidebarOpen(false); }, [isMobile]);
 
   // Track previous arrays so we can diff and only save what changed
   const prevRef = useRef({ products: [], sales: [], customers: [], repairs: [], tradeIns: [], deposits: [], deletionLogs: [], staff: [] });
@@ -5354,15 +5432,44 @@ function MainApp({ user }) {
   // No staff selected → show staff picker
   if (!activeStaff) return <StaffPicker staff={staff} setStaff={setStaff} onSelect={setActiveStaff} />;
 
+  // Mobile-responsive layout: phones get a slide-out drawer; iPads/desktop keep the persistent sidebar
+  const sidebarVisible = isMobile ? sidebarOpen : true;
+  const sidebarWidth = isMobile ? 260 : (sidebarOpen ? 220 : 64);
+
   return (
-    <div style={{ height: "100vh", display: "flex", fontFamily: "'DM Sans', sans-serif", background: "#f5f7fa", color: "#374151", overflow: "hidden" }}>
+    <div style={{ height: "100vh", display: "flex", fontFamily: "'DM Sans', sans-serif", background: "#f5f7fa", color: "#374151", overflow: "hidden", position: "relative" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-      <div style={{ width: sidebarOpen ? 220 : 64, flexShrink: 0, background: "linear-gradient(180deg, #f0f2f5, #e8ecf0)", borderRight: "1px solid #e5e7eb", display: "flex", flexDirection: "column", transition: "width 0.3s", overflow: "hidden" }}>
-        <div style={{ padding: sidebarOpen ? "20px 18px" : "20px 12px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setSidebarOpen(!sidebarOpen)}>
-          <span style={{ fontSize: 28 }}>📱</span>
-          {sidebarOpen && <div><div style={{ fontSize: 16, fontWeight: 800, color: "#111827", whiteSpace: "nowrap" }}>Phone Shop</div><div style={{ fontSize: 11, color: "#2563eb", fontWeight: 600 }}>POS SYSTEM</div></div>}
+
+      {/* Backdrop for mobile drawer */}
+      {isMobile && sidebarOpen && (
+        <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 90, backdropFilter: "blur(2px)" }} />
+      )}
+
+      <div style={{
+        width: sidebarWidth,
+        flexShrink: 0,
+        background: "linear-gradient(180deg, #f0f2f5, #e8ecf0)",
+        borderRight: "1px solid #e5e7eb",
+        display: "flex",
+        flexDirection: "column",
+        transition: isMobile ? "transform 0.3s, width 0s" : "width 0.3s",
+        overflow: "hidden",
+        // On mobile: fixed positioning that slides in/out from left
+        position: isMobile ? "fixed" : "relative",
+        top: 0, bottom: 0, left: 0,
+        zIndex: isMobile ? 100 : "auto",
+        transform: isMobile ? (sidebarOpen ? "translateX(0)" : "translateX(-100%)") : "none",
+        boxShadow: isMobile && sidebarOpen ? "4px 0 24px rgba(0,0,0,0.15)" : "none",
+      }}>
+        <div style={{ padding: (isMobile || sidebarOpen) ? "20px 18px" : "20px 12px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", justifyContent: "space-between" }} onClick={() => !isMobile && setSidebarOpen(!sidebarOpen)}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 28 }}>📱</span>
+            {(isMobile || sidebarOpen) && <div><div style={{ fontSize: 16, fontWeight: 800, color: "#111827", whiteSpace: "nowrap" }}>SP Phones</div><div style={{ fontSize: 11, color: "#2563eb", fontWeight: 600 }}>POS SYSTEM</div></div>}
+          </div>
+          {/* Close button visible only on mobile drawer */}
+          {isMobile && <button onClick={(e) => { e.stopPropagation(); setSidebarOpen(false); }} style={{ background: "none", border: "none", color: "#6b7280", fontSize: 24, cursor: "pointer", padding: 4 }}>✕</button>}
         </div>
-        <nav style={{ flex: 1, padding: "12px 8px" }}>
+        <nav style={{ flex: 1, padding: "12px 8px", overflowY: "auto" }}>
           {TABS.filter(t => {
             // Reports visible to: owners, managers, OR staff with canViewTodayReports permission
             if (t === "reports") {
@@ -5373,13 +5480,13 @@ function MainApp({ user }) {
             }
             return true;
           }).map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "11px 14px", marginBottom: 4, borderRadius: 12, border: "none", background: tab === t ? "linear-gradient(135deg, rgba(37,99,235,0.1), rgba(59,130,246,0.06))" : "transparent", color: tab === t ? "#2563eb" : "#6060a0", cursor: "pointer", fontSize: 14, fontWeight: tab === t ? 700 : 500, fontFamily: "'DM Sans', sans-serif", textAlign: "left", transition: "all 0.2s", borderLeft: tab === t ? "3px solid #3b82f6" : "3px solid transparent" }}>
+            <button key={t} onClick={() => { setTab(t); if (isMobile) setSidebarOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "11px 14px", marginBottom: 4, borderRadius: 12, border: "none", background: tab === t ? "linear-gradient(135deg, rgba(37,99,235,0.1), rgba(59,130,246,0.06))" : "transparent", color: tab === t ? "#2563eb" : "#6060a0", cursor: "pointer", fontSize: 14, fontWeight: tab === t ? 700 : 500, fontFamily: "'DM Sans', sans-serif", textAlign: "left", transition: "all 0.2s", borderLeft: tab === t ? "3px solid #3b82f6" : "3px solid transparent" }}>
               <svg width={20} height={20} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d={TAB_ICONS[t]} /></svg>
-              {sidebarOpen && <span style={{ whiteSpace: "nowrap" }}>{TAB_LABELS[t]}</span>}
+              {(isMobile || sidebarOpen) && <span style={{ whiteSpace: "nowrap" }}>{TAB_LABELS[t]}</span>}
             </button>
           ))}
         </nav>
-        {sidebarOpen && <div style={{ padding: "12px 14px", borderTop: "1px solid #e5e7eb" }}>
+        {(sidebarOpen || isMobile) && <div style={{ padding: "12px 14px", borderTop: "1px solid #e5e7eb" }}>
           {/* Active staff member */}
           <div style={{ background: "#eef2ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 10, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg, #2563eb, #3b82f6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
@@ -5400,7 +5507,21 @@ function MainApp({ user }) {
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", animation: "pulse 2s infinite", display: "inline-block" }}></span>
             Live sync active
           </div>
-          <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
+          <style>{`
+            @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+            /* Mobile tweaks — only apply at phone widths */
+            @media (max-width: 767px) {
+              /* Tables get a parent scroll on mobile */
+              table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+              table thead, table tbody, table tr { display: table; width: 100%; table-layout: fixed; }
+              /* But unwrap individual cells so content can flow */
+              table td, table th { white-space: normal; }
+              /* Prevent iOS auto-zoom on input focus */
+              input, textarea, select { font-size: 16px !important; }
+              /* Make buttons comfortable for fingers */
+              button { min-height: 40px; }
+            }
+          `}</style>
           <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 8, marginBottom: 4, wordBreak: "break-all" }}>Account: {user.email}</div>
           <button onClick={() => signOut(auth)} style={{ fontSize: 11, color: "#ef4444", background: "none", border: "1px solid #ef444466", borderRadius: 8, padding: "3px 8px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6 }}>🚪 Sign Out</button>
           <br />
@@ -5408,11 +5529,17 @@ function MainApp({ user }) {
         </div>}
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <header style={{ padding: "16px 24px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#111827" }}>{TAB_LABELS[tab]}</h1>
-          <div style={{ fontSize: 13, color: "#9ca3af" }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
+        <header style={{ padding: isMobile ? "12px 14px" : "16px 24px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+            {/* Hamburger menu — only on mobile */}
+            {isMobile && (
+              <button onClick={() => setSidebarOpen(true)} style={{ background: "#2563eb15", border: "1px solid #2563eb40", borderRadius: 10, padding: "8px 12px", cursor: "pointer", color: "#2563eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }} aria-label="Open menu">☰</button>
+            )}
+            <h1 style={{ margin: 0, fontSize: isMobile ? 18 : 22, fontWeight: 800, color: "#111827", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{TAB_LABELS[tab]}</h1>
+          </div>
+          {!isMobile && <div style={{ fontSize: 13, color: "#9ca3af" }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>}
         </header>
-        <main style={{ flex: 1, padding: 20, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <main style={{ flex: 1, padding: isMobile ? 12 : 20, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           {tab === "pos" && <POSTab products={products} setProducts={setProducts} sales={sales} setSales={setSales} customers={customers} setCustomers={setCustomers} activeStaff={activeStaff} />}
           {tab === "inventory" && <InventoryTab products={products} setProducts={setProducts} deletionLogs={deletionLogs} setDeletionLogs={setDeletionLogs} user={user} activeStaff={activeStaff} />}
           {tab === "sales" && <SalesHistoryTab sales={sales} setSales={setSales} products={products} setProducts={setProducts} customers={customers} activeStaff={activeStaff} />}
