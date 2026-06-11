@@ -1326,6 +1326,8 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomer
 // ─── Inventory ──────────────────────────────────────────────────────
 
 const InventoryTab = ({ products, setProducts, deletionLogs, setDeletionLogs, user, activeStaff }) => {
+  // Only owners and managers can see cost prices (what we paid suppliers) and stock value
+  const canSeeMoney = activeStaff?.role === "owner" || activeStaff?.role === "manager";
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
@@ -4434,8 +4436,12 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
   );
 };
 
-const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) => {
-  const [range, setRange] = useState("all");
+const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mode = "full" }) => {
+  // mode: "full" = owner/manager (everything), "today-only" = staff with today-intake permission
+  const isStaffMode = mode === "today-only";
+  const [range, setRange] = useState(isStaffMode ? "today" : "all");
+  // In staff mode, the date range is forced to "today" and can't be changed
+  useEffect(() => { if (isStaffMode) setRange("today"); }, [isStaffMode]);
   const [customFrom, setCustomFrom] = useState(today());
   const [customTo, setCustomTo] = useState(today());
   const now = new Date();
@@ -4621,11 +4627,21 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflowY: "auto" }}>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        {[["all", "All Time"], ["today", "Today"], ["yesterday", "Yesterday"], ["last7", "Last 7 Days"], ["week", "This Week"], ["month", "This Month"], ["lastmonth", "Last Month"], ["custom", "📅 Custom Range"]].map(([v, l]) => (
-          <button key={v} onClick={() => setRange(v)} style={{ padding: "8px 16px", borderRadius: 10, border: `1px solid ${range === v ? "#2563eb" : "#d4d8e0"}`, background: range === v ? "#2563eb15" : "transparent", color: range === v ? "#3b82f6" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{l}</button>
-        ))}
-      </div>
+      {isStaffMode ? (
+        <div style={{ background: "linear-gradient(135deg, #2563eb15, #3b82f615)", border: "1px solid #2563eb40", borderRadius: 12, padding: 14, marginBottom: 14, display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ fontSize: 24 }}>📅</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#1e40af" }}>Today's Intake — {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>Staff view: shows today's takings only. Ask the owner for full reports.</div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          {[["all", "All Time"], ["today", "Today"], ["yesterday", "Yesterday"], ["last7", "Last 7 Days"], ["week", "This Week"], ["month", "This Month"], ["lastmonth", "Last Month"], ["custom", "📅 Custom Range"]].map(([v, l]) => (
+            <button key={v} onClick={() => setRange(v)} style={{ padding: "8px 16px", borderRadius: 10, border: `1px solid ${range === v ? "#2563eb" : "#d4d8e0"}`, background: range === v ? "#2563eb15" : "transparent", color: range === v ? "#3b82f6" : "#7070a0", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{l}</button>
+          ))}
+        </div>
+      )}
 
       {/* Custom date range picker — only shown when Custom is selected */}
       {range === "custom" && (
@@ -4668,18 +4684,20 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
           SECTION 1: HEADLINE NUMBERS
           ═══════════════════════════════════════════════════════════ */}
       <div style={{ marginBottom: 22 }}>
-        <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>📊 Headline Numbers</div>
+        <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>📊 Today's Numbers</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
           <div style={{ background: "linear-gradient(135deg, #10b981, #059669)", borderRadius: 14, padding: 16, color: "#fff" }}>
             <div style={{ fontSize: 11, opacity: 0.9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>💰 Total Intake</div>
             <div style={{ fontSize: 26, fontWeight: 900, marginTop: 4 }}>{currency(totalIntake)}</div>
             <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>Cash + Card combined</div>
           </div>
-          <div style={{ background: "linear-gradient(135deg, #2563eb, #3b82f6)", borderRadius: 14, padding: 16, color: "#fff" }}>
-            <div style={{ fontSize: 11, opacity: 0.9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>📈 Net Profit</div>
-            <div style={{ fontSize: 26, fontWeight: 900, marginTop: 4 }}>{currency(profit)}</div>
-            <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>{profitMargin.toFixed(1)}% margin</div>
-          </div>
+          {!isStaffMode && (
+            <div style={{ background: "linear-gradient(135deg, #2563eb, #3b82f6)", borderRadius: 14, padding: 16, color: "#fff" }}>
+              <div style={{ fontSize: 11, opacity: 0.9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>📈 Net Profit</div>
+              <div style={{ fontSize: 26, fontWeight: 900, marginTop: 4 }}>{currency(profit)}</div>
+              <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>{profitMargin.toFixed(1)}% margin</div>
+            </div>
+          )}
           <div style={{ background: "#ffffff", border: "1px solid #d4d8e0", borderRadius: 14, padding: 16 }}>
             <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>🛒 Sales Revenue</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: "#111827", marginTop: 4 }}>{currency(revenue)}</div>
@@ -4714,7 +4732,8 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
           </div>
         </div>
 
-        {/* Detailed breakdown table */}
+        {/* Detailed breakdown table (owner/manager only) */}
+        {!isStaffMode && (
         <Card>
           <details>
             <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#2563eb", padding: "4px 0", listStyle: "none" }}>📋 See breakdown by source ▾</summary>
@@ -4782,11 +4801,13 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
             </table>
           </details>
         </Card>
+        )}
       </div>
 
       {/* ═══════════════════════════════════════════════════════════
-          SECTION 3: TRENDS & TOP PRODUCTS
+          SECTION 3: TRENDS & TOP PRODUCTS (Owner/Manager only)
           ═══════════════════════════════════════════════════════════ */}
+      {!isStaffMode && (
       <div style={{ marginBottom: 22 }}>
         <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>📈 Trends & Best Sellers</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -4815,10 +4836,12 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
           </Card>
         </div>
       </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
-          SECTION 4: ITEMS SOLD
+          SECTION 4: ITEMS SOLD (Owner/Manager only)
           ═══════════════════════════════════════════════════════════ */}
+      {!isStaffMode && (
       <div style={{ marginBottom: 22 }}>
         <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>🛒 Items Sold {filtered.length > 0 && <span style={{ color: "#9ca3af", fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {filtered.length} sale{filtered.length !== 1 ? "s" : ""}</span>}</div>
         <Card>
@@ -4853,10 +4876,12 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
           </table>
         </Card>
       </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
-          SECTION 5: REPAIRS COMPLETED
+          SECTION 5: REPAIRS COMPLETED (Owner/Manager only)
           ═══════════════════════════════════════════════════════════ */}
+      {!isStaffMode && (
       <div style={{ marginBottom: 22 }}>
         <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>🔧 Repairs Completed {periodRepairs.length > 0 && <span style={{ color: "#9ca3af", fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {periodRepairs.length} job{periodRepairs.length !== 1 ? "s" : ""}</span>}</div>
         <Card>
@@ -4903,6 +4928,7 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [] }) 
           </table>
         </Card>
       </div>
+      )}
     </div>
   );
 };
@@ -5093,7 +5119,7 @@ const StaffPicker = ({ staff, setStaff, onSelect }) => {
                       {member.name.split(" ").map(w => w[0]).join("").substring(0, 2).toUpperCase()}
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 2 }}>{member.name}</div>
-                    <div style={{ fontSize: 11, color: "#6b7280" }}>{member.role === "owner" ? "👑 Owner" : "👤 Staff"}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>{member.role === "owner" ? "👑 Owner" : member.role === "manager" ? "🧑‍💼 Manager" : "👤 Staff"}</div>
                     {member.pin && <div style={{ fontSize: 10, color: "#2563eb", marginTop: 4 }}>🔒 PIN required</div>}
                   </button>
                   <button onClick={() => askDeleteStaff(member)}
@@ -5137,11 +5163,16 @@ const StaffPicker = ({ staff, setStaff, onSelect }) => {
         <Input label="Full Name *" placeholder="e.g. John Smith" value={newStaffName} onChange={e => setNewStaffName(e.target.value)} />
         <div>
           <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6, fontFamily: "'DM Sans', sans-serif" }}>Role</label>
-          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-            {[["staff", "👤 Staff"], ["owner", "👑 Owner"]].map(([val, label]) => (
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            {[["staff", "👤 Staff"], ["manager", "🧑‍💼 Manager"], ["owner", "👑 Owner"]].map(([val, label]) => (
               <button key={val} type="button" onClick={() => setNewStaffRole(val)}
                 style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: `1px solid ${newStaffRole === val ? "#2563eb" : "#d4d8e0"}`, background: newStaffRole === val ? "#2563eb15" : "#ffffff", color: newStaffRole === val ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
             ))}
+          </div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 14, padding: "8px 10px", background: "#f9fafb", borderRadius: 6, lineHeight: 1.4 }}>
+            <div><strong>👤 Staff:</strong> POS, Inventory, Repairs, Customers — no financial reports.</div>
+            <div style={{ marginTop: 3 }}><strong>🧑‍💼 Manager:</strong> Everything + sees Reports & money.</div>
+            <div style={{ marginTop: 3 }}><strong>👑 Owner:</strong> Full access — can also delete staff.</div>
           </div>
         </div>
         <Input label="4-Digit PIN (optional)" type="text" inputMode="numeric" maxLength={4} placeholder="e.g. 1234" value={newStaffPin} onChange={e => setNewStaffPin(e.target.value.replace(/\D/g, ""))} />
@@ -5164,7 +5195,7 @@ const StaffPicker = ({ staff, setStaff, onSelect }) => {
                 </div>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>{deleteModal.name}</div>
-                  <div style={{ fontSize: 12, color: "#6b7280" }}>{deleteModal.role === "owner" ? "👑 Owner" : "👤 Staff"}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>{deleteModal.role === "owner" ? "👑 Owner" : deleteModal.role === "manager" ? "🧑‍💼 Manager" : "👤 Staff"}</div>
                 </div>
               </div>
               <div style={{ fontSize: 11, color: "#991b1b", marginTop: 8 }}>This person will no longer be able to sign in.</div>
@@ -5198,6 +5229,13 @@ function MainApp({ user }) {
   const [deletionLogs, setDeletionLogs] = useState([]);
   const [staff, setStaff] = useState([]);
   const [activeStaff, setActiveStaff] = useState(null); // { id, name } currently signed in
+  const [reportsUnlocked, setReportsUnlocked] = useState(false); // PIN re-entered for Reports
+  const [reportsPinModal, setReportsPinModal] = useState(false);
+  const [reportsPin, setReportsPin] = useState("");
+  const [reportsPinError, setReportsPinError] = useState("");
+  const [permissionsModal, setPermissionsModal] = useState(false); // owner-only access mgmt
+  // When switching staff, lock reports again
+  useEffect(() => { setReportsUnlocked(false); }, [activeStaff?.id]);
   const [loaded, setLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -5325,7 +5363,16 @@ function MainApp({ user }) {
           {sidebarOpen && <div><div style={{ fontSize: 16, fontWeight: 800, color: "#111827", whiteSpace: "nowrap" }}>Phone Shop</div><div style={{ fontSize: 11, color: "#2563eb", fontWeight: 600 }}>POS SYSTEM</div></div>}
         </div>
         <nav style={{ flex: 1, padding: "12px 8px" }}>
-          {TABS.map(t => (
+          {TABS.filter(t => {
+            // Reports visible to: owners, managers, OR staff with canViewTodayReports permission
+            if (t === "reports") {
+              const isOwner = activeStaff?.role === "owner";
+              const isManager = activeStaff?.role === "manager";
+              const canViewToday = !!activeStaff?.canViewTodayReports;
+              if (!isOwner && !isManager && !canViewToday) return false;
+            }
+            return true;
+          }).map(t => (
             <button key={t} onClick={() => setTab(t)} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "11px 14px", marginBottom: 4, borderRadius: 12, border: "none", background: tab === t ? "linear-gradient(135deg, rgba(37,99,235,0.1), rgba(59,130,246,0.06))" : "transparent", color: tab === t ? "#2563eb" : "#6060a0", cursor: "pointer", fontSize: 14, fontWeight: tab === t ? 700 : 500, fontFamily: "'DM Sans', sans-serif", textAlign: "left", transition: "all 0.2s", borderLeft: tab === t ? "3px solid #3b82f6" : "3px solid transparent" }}>
               <svg width={20} height={20} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d={TAB_ICONS[t]} /></svg>
               {sidebarOpen && <span style={{ whiteSpace: "nowrap" }}>{TAB_LABELS[t]}</span>}
@@ -5340,10 +5387,14 @@ function MainApp({ user }) {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeStaff.name}</div>
-              <div style={{ fontSize: 10, color: "#6b7280" }}>{activeStaff.role === "owner" ? "👑 Owner" : "👤 Staff"}</div>
+              <div style={{ fontSize: 10, color: "#6b7280" }}>{activeStaff.role === "owner" ? "👑 Owner" : activeStaff.role === "manager" ? "🧑‍💼 Manager" : "👤 Staff"}</div>
             </div>
           </div>
           <button onClick={() => setActiveStaff(null)} style={{ fontSize: 12, color: "#2563eb", background: "#2563eb15", border: "1px solid #2563eb", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6, fontWeight: 600 }}>🔄 Switch User</button>
+          {/* Owner-only: manage who can see reports */}
+          {activeStaff?.role === "owner" && (
+            <button onClick={() => setPermissionsModal(true)} style={{ fontSize: 12, color: "#f59e0b", background: "#f59e0b15", border: "1px solid #f59e0b", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6, fontWeight: 600, display: "block" }}>🔐 Manage Permissions</button>
+          )}
           {/* Live sync indicator */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#10b981", marginTop: 4, marginBottom: 4 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", animation: "pulse 2s infinite", display: "inline-block" }}></span>
@@ -5369,9 +5420,133 @@ function MainApp({ user }) {
           {tab === "repairs" && <RepairsTab repairs={repairs} setRepairs={setRepairs} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} activeStaff={activeStaff} />}
           {tab === "tradeins" && <TradeInsTab tradeIns={tradeIns} setTradeIns={setTradeIns} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} activeStaff={activeStaff} />}
           {tab === "deposits" && <DepositsTab deposits={deposits} setDeposits={setDeposits} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} sales={sales} setSales={setSales} activeStaff={activeStaff} />}
-          {tab === "reports" && <ReportsTab sales={sales} products={products} repairs={repairs} tradeIns={tradeIns} deposits={deposits} />}
+          {tab === "reports" && (() => {
+            // Look up the live staff record (in case permissions changed)
+            const liveStaff = staff.find(s => s.id === activeStaff?.id) || activeStaff;
+            const isOwner = liveStaff?.role === "owner";
+            const isManager = liveStaff?.role === "manager";
+            const canViewToday = !!liveStaff?.canViewTodayReports;
+
+            // No access at all
+            if (!isOwner && !isManager && !canViewToday) {
+              return (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", color: "#6b7280", textAlign: "center", padding: 40 }}>
+                  <div style={{ fontSize: 60, marginBottom: 16 }}>🔒</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 8 }}>Reports are restricted</div>
+                  <div style={{ fontSize: 14, maxWidth: 360 }}>You don't have permission to view financial reports. Please ask the owner.</div>
+                </div>
+              );
+            }
+
+            // Has access but needs to enter PIN to unlock this session
+            if (!reportsUnlocked) {
+              return (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: 40 }}>
+                  <div style={{ background: "linear-gradient(135deg, #fef9c3, #fde68a)", border: "2px solid #f59e0b", borderRadius: 18, padding: 30, maxWidth: 420, textAlign: "center" }}>
+                    <div style={{ fontSize: 60, marginBottom: 12 }}>🔐</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginBottom: 6 }}>Reports Locked</div>
+                    <div style={{ fontSize: 13, color: "#92400e", marginBottom: 18 }}>
+                      {isOwner || isManager ? "Enter your PIN to view full reports." : "Enter your PIN to view today's intake only."}
+                    </div>
+                    <Btn variant="primary" onClick={() => { setReportsPinModal(true); setReportsPin(""); setReportsPinError(""); }} style={{ padding: "12px 28px", fontSize: 15 }}>🔓 Unlock Reports</Btn>
+                  </div>
+                </div>
+              );
+            }
+
+            // Owner/Manager get full view; staff with permission get today-only
+            return <ReportsTab sales={sales} products={products} repairs={repairs} tradeIns={tradeIns} deposits={deposits} mode={(isOwner || isManager) ? "full" : "today-only"} />;
+          })()}
         </main>
       </div>
+
+      {/* ─── Reports PIN Modal ─── */}
+      <Modal open={reportsPinModal} onClose={() => { setReportsPinModal(false); setReportsPin(""); setReportsPinError(""); }} title="🔐 Enter PIN to Unlock Reports">
+        <div>
+          <div style={{ textAlign: "center", marginBottom: 18 }}>
+            <div style={{ width: 60, height: 60, borderRadius: "50%", background: "linear-gradient(135deg, #f59e0b, #d97706)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30, margin: "0 auto 10px" }}>🔐</div>
+            <div style={{ fontSize: 14, color: "#6b7280" }}>Signed in as <strong style={{ color: "#111827" }}>{activeStaff?.name}</strong></div>
+          </div>
+          <input type="password" inputMode="numeric" maxLength={4} placeholder="• • • •" value={reportsPin} autoFocus
+            onChange={e => { setReportsPin(e.target.value.replace(/\D/g, "")); setReportsPinError(""); }}
+            onKeyDown={e => {
+              if (e.key === "Enter" && reportsPin.length === 4) {
+                const liveStaff = staff.find(s => s.id === activeStaff?.id);
+                if (liveStaff?.pin === reportsPin) {
+                  setReportsUnlocked(true); setReportsPinModal(false); setReportsPin(""); setReportsPinError("");
+                } else {
+                  setReportsPinError("Incorrect PIN");
+                }
+              }
+            }}
+            style={{ width: "100%", padding: "16px 14px", borderRadius: 10, border: `2px solid ${reportsPinError ? "#ef4444" : "#d4d8e0"}`, background: "#ffffff", color: "#111827", fontSize: 28, textAlign: "center", letterSpacing: 8, fontFamily: "monospace", boxSizing: "border-box", outline: "none" }} />
+          {reportsPinError && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 8, textAlign: "center" }}>⚠ {reportsPinError}</div>}
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 10, textAlign: "center" }}>💡 Reports will stay unlocked until you switch user or sign out.</div>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14 }}>
+            <Btn variant="ghost" onClick={() => { setReportsPinModal(false); setReportsPin(""); setReportsPinError(""); }}>Cancel</Btn>
+            <Btn variant="primary" onClick={() => {
+              const liveStaff = staff.find(s => s.id === activeStaff?.id);
+              if (liveStaff?.pin === reportsPin) {
+                setReportsUnlocked(true); setReportsPinModal(false); setReportsPin(""); setReportsPinError("");
+              } else {
+                setReportsPinError("Incorrect PIN");
+              }
+            }} disabled={reportsPin.length !== 4}>🔓 Unlock</Btn>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ─── Permissions Management Modal (Owner only) ─── */}
+      <Modal open={permissionsModal} onClose={() => setPermissionsModal(false)} title="🔐 Manage Reports Access" wide>
+        <div>
+          <div style={{ background: "#eff6ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 14, marginBottom: 18, fontSize: 13, color: "#1e40af" }}>
+            💡 <strong>How this works:</strong>
+            <ul style={{ margin: "8px 0 0 18px", paddingLeft: 0, fontSize: 12, color: "#1e3a8a" }}>
+              <li>👑 <strong>Owners</strong> always see the full Reports page (all dates, profit, totals)</li>
+              <li>🧑‍💼 <strong>Managers</strong> also get full Reports access by default</li>
+              <li>👤 <strong>Staff</strong> see Reports only if you tick the box below — and only today's intake (no historical, no profit)</li>
+              <li>🔒 Everyone has to enter their PIN to open Reports — even with permission</li>
+            </ul>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {staff.map(member => {
+              const isOwner = member.role === "owner";
+              const isManager = member.role === "manager";
+              const hasFullAccess = isOwner || isManager;
+              const checked = !!member.canViewTodayReports;
+              return (
+                <div key={member.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, background: hasFullAccess ? "#f0fdf4" : "#f8fafc", border: `1px solid ${hasFullAccess ? "#10b98140" : "#e5e7eb"}`, borderRadius: 10 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: hasFullAccess ? "linear-gradient(135deg, #10b981, #059669)" : "linear-gradient(135deg, #6b7280, #4b5563)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700 }}>
+                    {member.name.split(" ").map(w => w[0]).join("").substring(0, 2).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{member.name}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>{isOwner ? "👑 Owner" : isManager ? "🧑‍💼 Manager" : "👤 Staff"}</div>
+                  </div>
+                  {hasFullAccess ? (
+                    <div style={{ background: "#10b981", color: "#fff", padding: "4px 10px", borderRadius: 12, fontSize: 11, fontWeight: 700 }}>✅ Full Access</div>
+                  ) : (
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 10px", background: checked ? "#2563eb15" : "#f1f5f9", borderRadius: 8, border: `1px solid ${checked ? "#2563eb" : "#d4d8e0"}` }}>
+                      <input type="checkbox" checked={checked}
+                        onChange={e => setStaff(prev => prev.map(s => s.id === member.id ? { ...s, canViewTodayReports: e.target.checked } : s))}
+                        style={{ width: 18, height: 18, cursor: "pointer" }} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: checked ? "#2563eb" : "#6b7280" }}>Can view today's intake</span>
+                    </label>
+                  )}
+                </div>
+              );
+            })}
+            {staff.length === 0 && (
+              <div style={{ textAlign: "center", color: "#9ca3af", padding: 30 }}>No staff members yet. Add staff from the sign-in screen.</div>
+            )}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+            <Btn variant="primary" onClick={() => setPermissionsModal(false)}>Done</Btn>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
