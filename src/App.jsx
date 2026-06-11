@@ -5432,6 +5432,10 @@ function MainApp({ user }) {
   // No staff selected → show staff picker
   if (!activeStaff) return <StaffPicker staff={staff} setStaff={setStaff} onSelect={setActiveStaff} />;
 
+  // Always look up the live staff record — picks up permission changes made by the Owner
+  // (the cached `activeStaff` from sign-in doesn't refresh on its own)
+  const liveActiveStaff = staff.find(s => s.id === activeStaff.id) || activeStaff;
+
   // Mobile-responsive layout: phones get a slide-out drawer; iPads/desktop keep the persistent sidebar
   const sidebarVisible = isMobile ? sidebarOpen : true;
   const sidebarWidth = isMobile ? 260 : (sidebarOpen ? 220 : 64);
@@ -5472,10 +5476,11 @@ function MainApp({ user }) {
         <nav style={{ flex: 1, padding: "12px 8px", overflowY: "auto" }}>
           {TABS.filter(t => {
             // Reports visible to: owners, managers, OR staff with canViewTodayReports permission
+            // Uses LIVE staff record so Owner permission changes apply without re-signing in
             if (t === "reports") {
-              const isOwner = activeStaff?.role === "owner";
-              const isManager = activeStaff?.role === "manager";
-              const canViewToday = !!activeStaff?.canViewTodayReports;
+              const isOwner = liveActiveStaff?.role === "owner";
+              const isManager = liveActiveStaff?.role === "manager";
+              const canViewToday = !!liveActiveStaff?.canViewTodayReports;
               if (!isOwner && !isManager && !canViewToday) return false;
             }
             return true;
@@ -5498,8 +5503,8 @@ function MainApp({ user }) {
             </div>
           </div>
           <button onClick={() => setActiveStaff(null)} style={{ fontSize: 12, color: "#2563eb", background: "#2563eb15", border: "1px solid #2563eb", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6, fontWeight: 600 }}>🔄 Switch User</button>
-          {/* Owner-only: manage who can see reports */}
-          {activeStaff?.role === "owner" && (
+          {/* Owner-only: manage who can see reports (uses live staff record) */}
+          {liveActiveStaff?.role === "owner" && (
             <button onClick={() => setPermissionsModal(true)} style={{ fontSize: 12, color: "#f59e0b", background: "#f59e0b15", border: "1px solid #f59e0b", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6, fontWeight: 600, display: "block" }}>🔐 Manage Permissions</button>
           )}
           {/* Live sync indicator */}
