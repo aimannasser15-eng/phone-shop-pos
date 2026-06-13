@@ -4914,9 +4914,8 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          SECTION 4: ITEMS SOLD (Owner/Manager only)
+          SECTION 4: ITEMS SOLD (visible to everyone)
           ═══════════════════════════════════════════════════════════ */}
-      {!isStaffMode && (
       <div style={{ marginBottom: 22 }}>
         <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>🛒 Items Sold {filtered.length > 0 && <span style={{ color: "#9ca3af", fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {filtered.length} sale{filtered.length !== 1 ? "s" : ""}</span>}</div>
         <Card>
@@ -4930,7 +4929,7 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
               </tr>
             </thead>
             <tbody>
-              {filtered.slice(-20).reverse().map(s => (
+              {[...filtered].reverse().map(s => (
                 <tr key={s.id} style={{ borderBottom: "1px solid #e5e7eb", color: "#374151" }}>
                   <td style={{ padding: "8px", whiteSpace: "nowrap" }}>{new Date(s.date).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
                   <td style={{ padding: "8px" }}>{s.items.map(i => `${i.qty}× ${i.name}`).join(", ")}</td>
@@ -4951,12 +4950,10 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
           </table>
         </Card>
       </div>
-      )}
 
       {/* ═══════════════════════════════════════════════════════════
-          SECTION 5: REPAIRS COMPLETED (Owner/Manager only)
+          SECTION 5: REPAIRS COMPLETED (visible to everyone)
           ═══════════════════════════════════════════════════════════ */}
-      {!isStaffMode && (
       <div style={{ marginBottom: 22 }}>
         <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>🔧 Repairs Completed {periodRepairs.length > 0 && <span style={{ color: "#9ca3af", fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {periodRepairs.length} job{periodRepairs.length !== 1 ? "s" : ""}</span>}</div>
         <Card>
@@ -4968,11 +4965,11 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
                 <th style={{ padding: "8px" }}>Fault / IMEI</th>
                 <th style={{ padding: "8px" }}>Parts Used</th>
                 <th style={{ padding: "8px", textAlign: "right" }}>Charged</th>
-                <th style={{ padding: "8px", textAlign: "right" }}>Profit</th>
+                {!isStaffMode && <th style={{ padding: "8px", textAlign: "right" }}>Profit</th>}
               </tr>
             </thead>
             <tbody>
-              {periodRepairs.slice(-20).reverse().map(r => {
+              {[...periodRepairs].reverse().map(r => {
                 const partsCost = r.partsCost || 0;
                 const amountPaid = (r.paymentStatus === "partial") ? (r.amountPaid || 0) : (r.cost || 0);
                 const repairProf = amountPaid - partsCost;
@@ -4994,16 +4991,15 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
                       {(r.partsUsed || []).length === 0 ? <span style={{ color: "#9ca3af" }}>—</span> : r.partsUsed.map(p => `${p.qty || 1}× ${p.name}`).join(", ")}
                     </td>
                     <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: "#10b981" }}>{currency(amountPaid)}</td>
-                    <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: repairProf > 0 ? "#2563eb" : "#ef4444" }}>{currency(repairProf)}</td>
+                    {!isStaffMode && <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: repairProf > 0 ? "#2563eb" : "#ef4444" }}>{currency(repairProf)}</td>}
                   </tr>
                 );
               })}
-              {periodRepairs.length === 0 && <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>No repairs completed in this period</td></tr>}
+              {periodRepairs.length === 0 && <tr><td colSpan={isStaffMode ? 5 : 6} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>No repairs completed in this period</td></tr>}
             </tbody>
           </table>
         </Card>
       </div>
-      )}
     </div>
   );
 };
