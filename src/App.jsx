@@ -2630,12 +2630,34 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
     }
     const repairCost = +form.cost || 0;
     const partsCost = (form.partsUsed || []).reduce((t, p) => t + ((p.cost || 0) * (p.qty || 1)), 0);
-    const item = { customer: customerId, device: form.device, imei: form.imei, issue: form.issue, status: form.status, cost: repairCost, partsCost, partsUsed: form.partsUsed || [], partsDeducted: form.partsDeducted || false, payment: form.payment || "cash", cashPaid: form.payment === "mix" ? (+form.cashPaid || 0) : (form.payment === "cash" ? repairCost : 0), cardPaid: form.payment === "mix" ? (repairCost - (+form.cashPaid || 0)) : (form.payment === "card" ? repairCost : 0), notes: form.notes, paymentStatus: form.paymentStatus || "due_on_collection", amountPaid: +form.amountPaid || 0, paidOnCollectionDate: form.paymentStatus === "paid_in_full" ? (form.paidOnCollectionDate || today()) : (form.paidOnCollectionDate || null), staff: editing ? form.staff : (activeStaff?.name || ""), staffId: editing ? form.staffId : (activeStaff?.id || "") };
-
-    // Detect status transition for stock deduction
+    // Detect status transition for stock deduction (defined early so we can use oldRepair below)
     const oldRepair = editing ? repairs.find(r => r.id === editing) : null;
     const wasCompleted = oldRepair?.status === "Completed";
     const nowCompleted = form.status === "Completed";
+
+    // Determine initial amount paid based on payment status
+    let initialAmountPaid = 0;
+    if (form.paymentStatus === "paid_upfront" || form.paymentStatus === "paid_in_full") initialAmountPaid = repairCost;
+    else if (form.paymentStatus === "partial") initialAmountPaid = +form.amountPaid || 0;
+
+    // For NEW repairs: create initial payments array if anything was paid at booking
+    // For EDITED repairs: preserve existing payments array (managed via takePayment / completion flow)
+    let paymentsArr = oldRepair?.payments || [];
+    if (!editing && initialAmountPaid > 0) {
+      paymentsArr = [{
+        id: uid(),
+        amount: initialAmountPaid,
+        method: form.payment === "card" ? "card" : "cash",
+        date: new Date().toISOString(),
+        staff: activeStaff?.name || "",
+        staffId: activeStaff?.id || "",
+        note: form.paymentStatus === "paid_upfront" ? "Paid upfront at booking" : (form.paymentStatus === "paid_in_full" ? "Paid in full at booking" : "Deposit at booking"),
+      }];
+    }
+
+    const item = { customer: customerId, device: form.device, imei: form.imei, issue: form.issue, status: form.status, cost: repairCost, partsCost, partsUsed: form.partsUsed || [], partsDeducted: form.partsDeducted || false, payment: form.payment || "cash", cashPaid: form.payment === "mix" ? (+form.cashPaid || 0) : (form.payment === "cash" ? repairCost : 0), cardPaid: form.payment === "mix" ? (repairCost - (+form.cashPaid || 0)) : (form.payment === "card" ? repairCost : 0), notes: form.notes, paymentStatus: form.paymentStatus || "due_on_collection", amountPaid: initialAmountPaid, paidOnCollectionDate: form.paymentStatus === "paid_in_full" ? (form.paidOnCollectionDate || today()) : (form.paidOnCollectionDate || null), payments: paymentsArr, staff: editing ? form.staff : (activeStaff?.name || ""), staffId: editing ? form.staffId : (activeStaff?.id || "") };
+
+    // Detect status transition (already defined above)
 
     // Auto-deduct stock when transitioning to Completed (and only once)
     if (nowCompleted && !wasCompleted && !form.partsDeducted && (form.partsUsed || []).length > 0) {
@@ -2706,14 +2728,74 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
     if (partsPickerSearch && !p.name.toLowerCase().includes(partsPickerSearch.toLowerCase()) && !(p.compatibleModels || "").toLowerCase().includes(partsPickerSearch.toLowerCase())) return false;
     return true;
   });
+  const [completionModal, setCompletionModal] = useState(null); // { repair, payNow, amount, method, askingStatus }
+  const [statusConfirmModal, setStatusConfirmModal] = useState(null); // { repair, targetStatus }
+  const [takePaymentModal, setTakePaymentModal] = useState(null); // { repair, amount, method }
+
+  // Helpers
+  const totalPaid = (repair) => {
+    if (!repair) return 0;
+    // New payments array (preferred) — sum each payment
+    if (Array.isArray(repair.payments) && repair.payments.length > 0) {
+      return repair.payments.reduce((t, p) => t + (p.amount || 0), 0);
+    }
+    // Fallback to legacy single-field tracking
+    if (repair.paymentStatus === "paid_in_full" || repair.paymentStatus === "paid_upfront") return repair.cost || 0;
+    if (repair.paymentStatus === "partial") return repair.amountPaid || 0;
+    return 0;
+  };
+
+  // Status flow order — for detecting backwards transitions
+  const STATUS_ORDER = ["Received", "Diagnosing", "Waiting for Parts", "In Repair", "Testing", "Ready for Pickup", "Completed"];
+  const isBackwardsTransition = (from, to) => {
+    const fi = STATUS_ORDER.indexOf(from);
+    const ti = STATUS_ORDER.indexOf(to);
+    return fi !== -1 && ti !== -1 && ti < fi;
+  };
+
   const updateStatus = async (id, status) => {
+    const repair = repairs.find(r => r.id === id);
+    if (!repair) return;
+    const oldStatus = repair.status;
+    if (status === oldStatus) return;
+
+    // Cancellation goes through the existing cancel modal
+    if (status === "Cancelled" && oldStatus !== "Cancelled") {
+      setCancelModal({ repair, reason: "", refundAmount: totalPaid(repair) });
+      return;
+    }
+
+    // Moving TO Completed → force the staff to deal with payment first
+    if (status === "Completed" && oldStatus !== "Completed") {
+      const remaining = Math.max(0, (repair.cost || 0) - totalPaid(repair));
+      // If nothing owed (already paid in full), just confirm completion
+      if (remaining <= 0) {
+        setStatusConfirmModal({ repair, targetStatus: status });
+        return;
+      }
+      // Otherwise → force the payment decision
+      setCompletionModal({ repair, payNow: "full", amount: remaining.toFixed(2), method: "cash" });
+      return;
+    }
+
+    // All other big-jump transitions: confirm before applying
+    if (status === "Ready for Pickup" || isBackwardsTransition(oldStatus, status)) {
+      setStatusConfirmModal({ repair, targetStatus: status });
+      return;
+    }
+
+    // Normal forward transitions (e.g. Received → Diagnosing → In Repair) — apply instantly
+    await applyStatusChange(id, status);
+  };
+
+  // Apply a status change without confirmation (called after modal confirm OR for routine transitions)
+  const applyStatusChange = async (id, status) => {
     const repair = repairs.find(r => r.id === id);
     if (!repair) return;
     const oldStatus = repair.status;
     setRepairs(prev => prev.map(r => {
       if (r.id !== id) return r;
       const updated = { ...r, status };
-      // Auto-set the completion date when moving TO Completed
       if (status === "Completed" && oldStatus !== "Completed") {
         updated.completedDate = new Date().toISOString();
       }
@@ -2727,13 +2809,45 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
         const content = buildRepairSMS(updatedRepair, cust, status);
         const result = await sendSMS({ phone: cust.phone, content });
         if (result.success) {
-          // Log SMS in repair history
           setRepairs(prev => prev.map(r => r.id === id ? { ...r, smsHistory: [...(r.smsHistory || []), { date: new Date().toISOString(), status, content, auto: true }] } : r));
         } else {
           alert(`Auto-SMS failed: ${result.message}`);
         }
       }
     }
+  };
+
+  // Record a payment against a repair — adds to payments[] array with today's date
+  const recordPayment = (repairId, amount, method, note = "") => {
+    const amt = +amount || 0;
+    if (amt <= 0) return;
+    const payment = {
+      id: uid(),
+      amount: amt,
+      method, // "cash" | "card"
+      date: new Date().toISOString(),
+      staff: activeStaff?.name || "",
+      staffId: activeStaff?.id || "",
+      note,
+    };
+    setRepairs(prev => prev.map(r => {
+      if (r.id !== repairId) return r;
+      const newPayments = [...(r.payments || []), payment];
+      const newTotalPaid = newPayments.reduce((t, p) => t + (p.amount || 0), 0);
+      const cost = r.cost || 0;
+      // Update derived fields
+      let newPaymentStatus = "due_on_collection";
+      if (newTotalPaid >= cost) newPaymentStatus = "paid_in_full";
+      else if (newTotalPaid > 0) newPaymentStatus = "partial";
+      return {
+        ...r,
+        payments: newPayments,
+        amountPaid: newTotalPaid,
+        paymentStatus: newPaymentStatus,
+        // Set paidOnCollectionDate when fully paid (used by Reports)
+        paidOnCollectionDate: newPaymentStatus === "paid_in_full" ? (r.paidOnCollectionDate || new Date().toISOString().slice(0, 10)) : r.paidOnCollectionDate,
+      };
+    }));
   };
   const ACTIVE_STATUSES = ["Received", "Diagnosing", "Waiting for Parts", "In Repair", "Testing"];
 
@@ -2994,6 +3108,15 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
               <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", paddingTop: 10, borderTop: "1px solid #e5e7eb" }}>
                 <button onClick={e => { e.stopPropagation(); openEdit(r); }}
                   style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #6b7280", background: "#6b728015", color: "#374151", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>✏️ Edit</button>
+                {/* Take Payment button — shown when there's a balance owed */}
+                {(() => {
+                  const owed = Math.max(0, (r.cost || 0) - totalPaid(r));
+                  if (owed <= 0 || r.status === "Cancelled") return null;
+                  return (
+                    <button onClick={e => { e.stopPropagation(); setTakePaymentModal({ repair: r, amount: owed.toFixed(2), method: "cash" }); }}
+                      style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #10b981", background: "#10b98115", color: "#10b981", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>💰 Take Payment (£{owed.toFixed(2)} left)</button>
+                  );
+                })()}
                 {/* Cancel button — only shown for non-completed, non-cancelled repairs */}
                 {r.status !== "Completed" && r.status !== "Cancelled" && (
                   <button onClick={e => { e.stopPropagation(); setCancelModal({ repair: r, reason: "", refundAmount: r.amountPaid || 0 }); }}
@@ -3274,6 +3397,162 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
                   ))}
                 </div>
               )}
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* ─── Status Confirmation Modal (for big jumps) ─── */}
+      <Modal open={!!statusConfirmModal} onClose={() => setStatusConfirmModal(null)} title="Confirm Status Change">
+        {statusConfirmModal && (() => {
+          const r = statusConfirmModal.repair;
+          const target = statusConfirmModal.targetStatus;
+          const goingBack = isBackwardsTransition(r.status, target);
+          return (
+            <div>
+              <div style={{ background: goingBack ? "#fef3c7" : "#eff6ff", border: `1px solid ${goingBack ? "#f59e0b" : "#2563eb"}40`, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 6 }}>{r.device}</div>
+                <div style={{ fontSize: 13, color: "#6b7280" }}>
+                  Change status from <strong style={{ color: statusColors[r.status] }}>{r.status}</strong> to <strong style={{ color: statusColors[target] }}>{target}</strong>?
+                </div>
+                {goingBack && <div style={{ fontSize: 12, color: "#92400e", marginTop: 8 }}>⚠️ This moves the repair BACKWARDS in the workflow. Make sure this is correct.</div>}
+                {target === "Ready for Pickup" && <div style={{ fontSize: 12, color: "#10b981", marginTop: 8 }}>📱 An SMS will be sent to the customer (if auto-SMS is enabled).</div>}
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <Btn variant="ghost" onClick={() => setStatusConfirmModal(null)}>Cancel</Btn>
+                <Btn variant="primary" onClick={async () => {
+                  await applyStatusChange(r.id, target);
+                  setStatusConfirmModal(null);
+                }}>Confirm</Btn>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* ─── Completion + Payment Modal ─── */}
+      <Modal open={!!completionModal} onClose={() => setCompletionModal(null)} title="✅ Complete Repair & Take Payment">
+        {completionModal && (() => {
+          const r = completionModal.repair;
+          const cust = customers.find(c => c.id === r.customer);
+          const alreadyPaid = totalPaid(r);
+          const cost = r.cost || 0;
+          const remaining = Math.max(0, cost - alreadyPaid);
+          return (
+            <div>
+              <div style={{ background: "#eff6ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 2 }}>{r.device}</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>{cust?.name || "—"} {cust?.phone && `· ${cust.phone}`}</div>
+                <div style={{ marginTop: 10, padding: 10, background: "#fff", borderRadius: 6, fontSize: 13 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", color: "#6b7280" }}><span>Total repair cost:</span><span>{currency(cost)}</span></div>
+                  {alreadyPaid > 0 && <div style={{ display: "flex", justifyContent: "space-between", color: "#10b981", marginTop: 4 }}><span>Already paid:</span><span>{currency(alreadyPaid)}</span></div>}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, color: remaining > 0 ? "#ef4444" : "#10b981", marginTop: 6, paddingTop: 6, borderTop: "1px solid #e5e7eb", fontSize: 16 }}><span>{remaining > 0 ? "Owed now:" : "Status:"}</span><span>{remaining > 0 ? currency(remaining) : "Paid in full ✓"}</span></div>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>💰 Has the customer paid?</div>
+                {[
+                  ["full", `🟢 Yes — Paid in Full (£${remaining.toFixed(2)})`, "Records the full balance and completes the repair"],
+                  ["partial", "🟡 Partial payment — enter amount", "Customer paid some but not all"],
+                  ["unpaid", "🔵 Not paid yet — flag as Unpaid", "Repair done but payment outstanding"],
+                ].map(([val, label, desc]) => (
+                  <button key={val} type="button" onClick={() => setCompletionModal({ ...completionModal, payNow: val, amount: val === "full" ? remaining.toFixed(2) : (val === "unpaid" ? "0" : "") })}
+                    style={{ display: "block", width: "100%", padding: "12px 14px", borderRadius: 10, border: `2px solid ${completionModal.payNow === val ? "#2563eb" : "#d4d8e0"}`, background: completionModal.payNow === val ? "#2563eb15" : "#ffffff", color: completionModal.payNow === val ? "#2563eb" : "#374151", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", textAlign: "left", marginBottom: 8 }}>
+                    <div>{label}</div>
+                    <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280", marginTop: 2 }}>{desc}</div>
+                  </button>
+                ))}
+              </div>
+
+              {completionModal.payNow === "partial" && (
+                <div style={{ marginBottom: 16, padding: 12, background: "#fffbeb", border: "1px solid #f59e0b40", borderRadius: 10 }}>
+                  <Input label={`Amount paid now (£) — max £${remaining.toFixed(2)}`} type="number" min={0.01} max={remaining} step="0.01" value={completionModal.amount} onChange={e => setCompletionModal({ ...completionModal, amount: e.target.value })} style={{ marginBottom: 8 }} />
+                  <div style={{ fontSize: 11, color: "#92400e" }}>Customer will still owe: <strong>£{Math.max(0, remaining - (+completionModal.amount || 0)).toFixed(2)}</strong></div>
+                </div>
+              )}
+
+              {(completionModal.payNow === "full" || completionModal.payNow === "partial") && +completionModal.amount > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Payment method</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {[["cash", "💵 Cash"], ["card", "💳 Card"]].map(([val, label]) => (
+                      <button key={val} type="button" onClick={() => setCompletionModal({ ...completionModal, method: val })}
+                        style={{ flex: 1, padding: "12px 8px", borderRadius: 10, border: `2px solid ${completionModal.method === val ? "#2563eb" : "#d4d8e0"}`, background: completionModal.method === val ? "linear-gradient(135deg, #2563eb, #3b82f6)" : "#ffffff", color: completionModal.method === val ? "#ffffff" : "#6b7280", cursor: "pointer", fontSize: 14, fontWeight: 700, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <Btn variant="ghost" onClick={() => setCompletionModal(null)}>Cancel</Btn>
+                <Btn variant="success" disabled={!completionModal.payNow || (completionModal.payNow === "partial" && (+completionModal.amount <= 0 || +completionModal.amount > remaining))}
+                  onClick={async () => {
+                    // Record the payment if any
+                    const amt = +completionModal.amount || 0;
+                    if (amt > 0) {
+                      recordPayment(r.id, amt, completionModal.method, completionModal.payNow === "full" ? "Final payment on collection" : "Partial payment on collection");
+                    }
+                    // Complete the repair
+                    await applyStatusChange(r.id, "Completed");
+                    setCompletionModal(null);
+                  }}>✅ Complete Repair</Btn>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* ─── Take Payment Modal (standalone, for partials) ─── */}
+      <Modal open={!!takePaymentModal} onClose={() => setTakePaymentModal(null)} title="💰 Take Payment">
+        {takePaymentModal && (() => {
+          const r = takePaymentModal.repair;
+          const cust = customers.find(c => c.id === r.customer);
+          const alreadyPaid = totalPaid(r);
+          const cost = r.cost || 0;
+          const remaining = Math.max(0, cost - alreadyPaid);
+          return (
+            <div>
+              <div style={{ background: "#eff6ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 2 }}>{r.device}</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>{cust?.name || "—"} {cust?.phone && `· ${cust.phone}`}</div>
+                <div style={{ marginTop: 10, padding: 10, background: "#fff", borderRadius: 6, fontSize: 13 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", color: "#6b7280" }}><span>Total cost:</span><span>{currency(cost)}</span></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", color: "#10b981", marginTop: 4 }}><span>Already paid:</span><span>{currency(alreadyPaid)}</span></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, color: "#ef4444", marginTop: 6, paddingTop: 6, borderTop: "1px solid #e5e7eb", fontSize: 16 }}><span>Balance owed:</span><span>{currency(remaining)}</span></div>
+                </div>
+                {/* Show payment history if any */}
+                {(r.payments || []).length > 0 && (
+                  <div style={{ marginTop: 10, fontSize: 11, color: "#6b7280" }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>Payment history:</div>
+                    {r.payments.map(p => (
+                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+                        <span>{new Date(p.date).toLocaleDateString("en-GB")} · {p.method === "cash" ? "💵" : "💳"} {p.method}</span>
+                        <span style={{ fontWeight: 700, color: "#10b981" }}>{currency(p.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <Input label={`Amount to take now (£) — max £${remaining.toFixed(2)}`} type="number" min={0.01} max={remaining} step="0.01" value={takePaymentModal.amount} onChange={e => setTakePaymentModal({ ...takePaymentModal, amount: e.target.value })} style={{ marginBottom: 14 }} />
+
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Payment method</div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                {[["cash", "💵 Cash"], ["card", "💳 Card"]].map(([val, label]) => (
+                  <button key={val} type="button" onClick={() => setTakePaymentModal({ ...takePaymentModal, method: val })}
+                    style={{ flex: 1, padding: "12px 8px", borderRadius: 10, border: `2px solid ${takePaymentModal.method === val ? "#2563eb" : "#d4d8e0"}`, background: takePaymentModal.method === val ? "linear-gradient(135deg, #2563eb, #3b82f6)" : "#ffffff", color: takePaymentModal.method === val ? "#ffffff" : "#6b7280", cursor: "pointer", fontSize: 14, fontWeight: 700, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+                ))}
+              </div>
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <Btn variant="ghost" onClick={() => setTakePaymentModal(null)}>Cancel</Btn>
+                <Btn variant="success" disabled={+takePaymentModal.amount <= 0 || +takePaymentModal.amount > remaining}
+                  onClick={() => {
+                    recordPayment(r.id, +takePaymentModal.amount, takePaymentModal.method, "Payment on collection");
+                    setTakePaymentModal(null);
+                  }}>💰 Record Payment</Btn>
+              </div>
             </div>
           );
         })()}
@@ -4514,6 +4793,12 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
 const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mode = "full" }) => {
   // mode: "full" = owner/manager (everything), "today-only" = staff with today-intake permission
   const isStaffMode = mode === "today-only";
+  // Legacy fallback for old repairs that don't have a payments[] array yet
+  const totalPaidLegacy = (r) => {
+    if (r.paymentStatus === "paid_in_full" || r.paymentStatus === "paid_upfront") return r.cost || 0;
+    if (r.paymentStatus === "partial") return r.amountPaid || 0;
+    return 0;
+  };
   const [range, setRange] = useState(isStaffMode ? "today" : "all");
   // In staff mode, the date range is forced to "today" and can't be changed
   useEffect(() => { if (isStaffMode) setRange("today"); }, [isStaffMode]);
@@ -4593,37 +4878,47 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
     });
   });
 
-  // Repairs — count income by payment-received date, not booking date.
-  // For Paid Upfront: counts on the booking date (dateIn).
-  // For Paid in Full / Partial: counts on paidOnCollectionDate (when payment was received).
-  // Cancelled repairs don't count as income (any refunds reduce the figure separately).
-  const allCompletedRepairs = repairs.filter(r => {
+  // Repairs — count income from the PAYMENTS array on the date each payment was actually received.
+  // Each payment is its own event with its own date/method/amount. This means:
+  //   - A £30 deposit on Day 1 + £50 balance on Day 2 → £30 shows in Day 1's report, £50 in Day 2's.
+  //   - Cancelled repair payments still count for the day they were taken (refunds reduce totals separately).
+  let repairCash = 0, repairCard = 0;
+  const periodPaymentRepairs = new Set(); // unique repair IDs that contributed to this period
+  repairs.forEach(r => {
+    // Get all payments (new array preferred, fall back to legacy fields for old data)
+    const payments = Array.isArray(r.payments) && r.payments.length > 0
+      ? r.payments
+      // Legacy fallback: synthesize a single payment from old data
+      : (totalPaidLegacy(r) > 0 ? [{
+          amount: totalPaidLegacy(r),
+          method: r.payment === "card" ? "card" : "cash",
+          date: r.paymentStatus === "paid_upfront" ? r.dateIn : (r.paidOnCollectionDate || r.completedDate || r.dateIn),
+        }] : []);
+    payments.forEach(p => {
+      if (!p.date) return;
+      if (!filterDate(p.date.slice(0, 10))) return;
+      const amt = p.amount || 0;
+      if (p.method === "card") repairCard += amt; else repairCash += amt;
+      periodPaymentRepairs.add(r.id);
+    });
+  });
+
+  // Repairs that count for "jobs in period" — completed during this period (for the table + counts)
+  const periodRepairs = repairs.filter(r => {
     if (r.status === "Cancelled") return false;
-    return r.status === "Completed" || r.paymentStatus === "paid_in_full" || r.paymentStatus === "paid_upfront" || r.paymentStatus === "partial";
+    // A repair shows in the period if either: it was completed in the period, OR any payment was taken in the period
+    if (r.status === "Completed" && r.completedDate && filterDate(r.completedDate.slice(0, 10))) return true;
+    return periodPaymentRepairs.has(r.id);
   });
-  const periodRepairs = allCompletedRepairs.filter(r => {
-    const paymentDate = r.paymentStatus === "paid_upfront" ? r.dateIn : (r.paidOnCollectionDate || r.completedDate || r.dateIn);
-    return filterDate(paymentDate);
-  });
-  let repairCash = 0, repairCard = 0, repairPartsCost = 0;
+
+  // Parts cost — only count parts for repairs completed in the period (not for partial-paid in-progress)
+  let repairPartsCost = 0;
   periodRepairs.forEach(r => {
-    // Use the actual amount paid for partial repairs, or the full cost for fully-paid ones
-    const amountToCount = (r.paymentStatus === "partial") ? (r.amountPaid || 0) : (r.cost || 0);
-    if (r.payment === "mix") {
-      // Split the proportionally if partial
-      const ratio = (r.cost || 0) > 0 ? amountToCount / (r.cost || 0) : 1;
-      repairCash += (r.cashPaid || 0) * ratio;
-      repairCard += (r.cardPaid || 0) * ratio;
-    } else if (r.payment === "card") {
-      repairCard += amountToCount;
-    } else {
-      repairCash += amountToCount;
+    if (r.status === "Completed" && r.completedDate && filterDate(r.completedDate.slice(0, 10))) {
+      repairPartsCost += (r.partsCost || 0);
     }
-    repairPartsCost += (r.partsCost || 0);
   });
-  const repairRevenueGross = periodRepairs.reduce((t, r) => {
-    return t + ((r.paymentStatus === "partial") ? (r.amountPaid || 0) : (r.cost || 0));
-  }, 0);
+  const repairRevenueGross = repairCash + repairCard;
   const repairProfit = repairRevenueGross - repairPartsCost;
 
   // Repair cancellation refunds (money going OUT)
@@ -4971,16 +5266,22 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
             <tbody>
               {[...periodRepairs].reverse().map(r => {
                 const partsCost = r.partsCost || 0;
-                const amountPaid = (r.paymentStatus === "partial") ? (r.amountPaid || 0) : (r.cost || 0);
-                const repairProf = amountPaid - partsCost;
-                // Payment date — when the money was actually received
-                const paymentDate = r.paymentStatus === "paid_upfront" ? r.dateIn : (r.paidOnCollectionDate || r.completedDate || r.dateIn);
+                // Sum only payments made in the selected period (so today's report shows today's £, not yesterday's deposit)
+                const payments = Array.isArray(r.payments) && r.payments.length > 0
+                  ? r.payments
+                  : (totalPaidLegacy(r) > 0 ? [{ amount: totalPaidLegacy(r), method: r.payment === "card" ? "card" : "cash", date: r.paidOnCollectionDate || r.completedDate || r.dateIn }] : []);
+                const paymentsInPeriod = payments.filter(p => p.date && filterDate(p.date.slice(0, 10)));
+                const receivedInPeriod = paymentsInPeriod.reduce((t, p) => t + (p.amount || 0), 0);
+                const lifetimeReceived = payments.reduce((t, p) => t + (p.amount || 0), 0);
+                const balanceOwed = Math.max(0, (r.cost || 0) - lifetimeReceived);
+                const repairProf = receivedInPeriod - partsCost;
+                const mostRecentDate = paymentsInPeriod.length > 0 ? paymentsInPeriod[paymentsInPeriod.length - 1].date : (r.completedDate || r.dateIn);
                 return (
                   <tr key={r.id} style={{ borderBottom: "1px solid #e5e7eb", color: "#374151" }}>
                     <td style={{ padding: "8px", whiteSpace: "nowrap" }}>
-                      <div>{new Date(paymentDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</div>
-                      {r.paymentStatus === "paid_upfront" && <div style={{ fontSize: 10, color: "#10b981", fontWeight: 600 }}>💰 Upfront</div>}
-                      {r.paymentStatus === "paid_in_full" && r.dateIn !== r.paidOnCollectionDate && <div style={{ fontSize: 10, color: "#6b7280" }}>Booked {new Date(r.dateIn).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</div>}
+                      <div>{new Date(mostRecentDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</div>
+                      {paymentsInPeriod.length > 1 && <div style={{ fontSize: 10, color: "#6b7280" }}>{paymentsInPeriod.length} payments</div>}
+                      {balanceOwed > 0 && <div style={{ fontSize: 10, color: "#ef4444", fontWeight: 600 }}>£{balanceOwed.toFixed(2)} owed</div>}
                     </td>
                     <td style={{ padding: "8px", fontWeight: 600 }}>{r.device}</td>
                     <td style={{ padding: "8px", fontSize: 11 }}>
@@ -4990,7 +5291,10 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
                     <td style={{ padding: "8px", fontSize: 11, color: "#6b7280" }}>
                       {(r.partsUsed || []).length === 0 ? <span style={{ color: "#9ca3af" }}>—</span> : r.partsUsed.map(p => `${p.qty || 1}× ${p.name}`).join(", ")}
                     </td>
-                    <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: "#10b981" }}>{currency(amountPaid)}</td>
+                    <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: "#10b981" }}>
+                      {currency(receivedInPeriod)}
+                      {receivedInPeriod !== (r.cost || 0) && <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 400 }}>of {currency(r.cost || 0)}</div>}
+                    </td>
                     {!isStaffMode && <td style={{ padding: "8px", textAlign: "right", fontWeight: 700, color: repairProf > 0 ? "#2563eb" : "#ef4444" }}>{currency(repairProf)}</td>}
                   </tr>
                 );
