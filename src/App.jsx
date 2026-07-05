@@ -216,6 +216,7 @@ const buildReceiptHTML = ({ type, data, customer }) => {
   return `<!DOCTYPE html>
 <html><head><title>${title} - ${receiptNum}</title>
 <style>
+  /* ─── Screen / A4 print (existing layout) ─── */
   @media print { .no-print { display: none !important; } body { margin: 0; } }
   body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 380px; margin: 20px auto; padding: 20px; color: #111; background: #fff; }
   .logo-box { display: none; }
@@ -235,6 +236,41 @@ const buildReceiptHTML = ({ type, data, customer }) => {
   .thanks { text-align: center; margin-top: 16px; font-size: 12px; color: #555; }
   .btn-row { text-align: center; margin-top: 20px; }
   .btn-row button { background: #2563eb; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; margin: 0 4px; font-weight: 600; }
+
+  /* ─── Thermal Printer Mode (80mm receipt paper) ─── */
+  /* When .thermal class is on body, the receipt formats itself for an 80mm thermal roll.
+     Activated by the "🖨 Thermal Print" button below — best for Star/Epson AirPrint-compatible printers.
+     Includes @page size hint so the printer cuts the paper correctly. */
+  body.thermal {
+    max-width: 72mm !important;
+    width: 72mm !important;
+    margin: 0 !important;
+    padding: 4mm !important;
+    font-family: 'Helvetica', 'Arial', sans-serif !important;
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+    color: #000 !important;
+  }
+  body.thermal h1 { font-size: 16px !important; font-weight: 900 !important; letter-spacing: 0.5px !important; margin: 0 0 2px !important; }
+  body.thermal .tagline { font-size: 9px !important; margin: 0 0 4px !important; color: #000 !important; }
+  body.thermal .shop-info { font-size: 9px !important; margin: 2px 0 8px !important; color: #000 !important; line-height: 1.3 !important; }
+  body.thermal .receipt-type { background: #000 !important; color: #fff !important; padding: 3px !important; font-size: 10px !important; letter-spacing: 1px !important; margin: 6px 0 !important; }
+  body.thermal .meta { font-size: 10px !important; margin-bottom: 6px !important; line-height: 1.4 !important; color: #000 !important; }
+  body.thermal .items-table { margin: 6px 0 !important; border-top: 1px dashed #000 !important; border-bottom: 1px dashed #000 !important; }
+  body.thermal table { font-size: 10px !important; }
+  body.thermal td { padding: 3px 0 !important; }
+  body.thermal .totals-table td { padding: 2px 0 !important; }
+  body.thermal .thanks { font-size: 10px !important; margin-top: 8px !important; color: #000 !important; }
+  body.thermal .terms { font-size: 8px !important; margin-top: 8px !important; padding-top: 6px !important; line-height: 1.4 !important; color: #000 !important; }
+  body.thermal .terms h3 { font-size: 9px !important; }
+  body.thermal .terms ul { padding-left: 10px !important; }
+  body.thermal .btn-row { margin-top: 14px !important; }
+
+  /* Tell the browser this is a thermal receipt — the page size matters for cutting */
+  @media print {
+    body.thermal { width: 80mm !important; max-width: 80mm !important; padding: 2mm !important; }
+    @page { size: 80mm auto; margin: 0; }
+  }
 </style></head>
 <body>
   <h1>${SHOP.name}</h1>
@@ -256,9 +292,16 @@ const buildReceiptHTML = ({ type, data, customer }) => {
     <ul>${terms.map(t => `<li>${t}</li>`).join("")}</ul>
   </div>
   <div class="btn-row no-print">
-    <button onclick="window.print()">🖨 Print</button>
+    <button onclick="window.print()">🖨 Print A4</button>
+    <button onclick="document.body.classList.add('thermal'); localStorage.setItem('pos-prefer-thermal', '1'); setTimeout(() => { window.print(); document.body.classList.remove('thermal'); }, 100);" style="background:#10b981">🧾 Thermal Print (80mm)</button>
     <button onclick="window.close()">Close</button>
   </div>
+  <script>
+    // Auto-use thermal mode if the user previously chose it
+    if (localStorage.getItem('pos-prefer-thermal') === '1') {
+      document.body.classList.add('thermal');
+    }
+  </script>
 </body></html>`;
 };
 
@@ -3717,6 +3760,7 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
       deviceModel: form.deviceModel,
       imei: form.imei, color: form.color, storage: form.storage, grade: form.grade,
       notes: form.notes, value: +form.value || 0, payment: form.payment,
+      cashSource: form.payment === "cash" ? (form.cashSource || "till") : null, // "till" | "previous_cash" — only relevant for cash payouts
       idSeen: form.idSeen, idType: form.idType,
       dateIn: form.dateIn || today(),
       status: editing ? form.status : "Received", // keep existing status if editing, default Received for new
@@ -3938,6 +3982,25 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
                   style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: `1px solid ${form.payment === val ? "#f59e0b" : "#d4d8e0"}`, background: form.payment === val ? "#f59e0b15" : "#ffffff", color: form.payment === val ? "#f59e0b" : "#6b7280", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
               ))}
             </div>
+            {/* Cash Source picker — only shown for cash payouts. Critical for accurate till reporting. */}
+            {form.payment === "cash" && (
+              <div style={{ marginTop: 10, padding: 10, background: "#fef3c7", border: "1px solid #f59e0b60", borderRadius: 8 }}>
+                <label style={{ display: "block", fontSize: 11, color: "#92400e", marginBottom: 6, fontFamily: "'DM Sans', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>💰 Where is this cash coming from?</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {[
+                    ["till", "💵 From Today's Till", "Reduces today's cash intake in reports"],
+                    ["previous_cash", "🏦 From Previous Cash / Owner's Wallet", "No effect on today's intake — money was already there"],
+                  ].map(([val, label, desc]) => (
+                    <button key={val} type="button" onClick={() => setForm({ ...form, cashSource: val })}
+                      style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${form.cashSource === val ? "#f59e0b" : "#d4d8e0"}`, background: form.cashSource === val ? "#ffffff" : "transparent", color: form.cashSource === val ? "#92400e" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", textAlign: "left" }}>
+                      <div>{label}</div>
+                      <div style={{ fontSize: 10, fontWeight: 400, opacity: 0.8, marginTop: 2 }}>{desc}</div>
+                    </button>
+                  ))}
+                </div>
+                {!form.cashSource && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 6, fontWeight: 600 }}>⚠️ Please pick a source so the reports stay accurate</div>}
+              </div>
+            )}
           </div>
         </div>
 
@@ -4930,13 +4993,22 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
   });
   const totalRepairRefunds = repairRefundCash + repairRefundCard;
   const periodTradeIns = tradeIns.filter(t => filterDate(t.dateIn));
-  let tradeInCashOut = 0, tradeInBankOut = 0, tradeInCreditOut = 0;
+  // Split cash trade-ins by source:
+  //   - "till" cash → reduces today's cash intake (money came out of the till)
+  //   - "previous_cash" → doesn't affect any day's report (owner brought the money in)
+  //   - Legacy trade-ins without cashSource → default to "till" (previous behavior)
+  let tradeInCashOutFromTill = 0, tradeInCashOutFromPrevious = 0, tradeInBankOut = 0, tradeInCreditOut = 0;
   periodTradeIns.forEach(t => {
-    if (t.payment === "cash") tradeInCashOut += (t.value || 0);
+    if (t.payment === "cash") {
+      const source = t.cashSource || "till";
+      if (source === "previous_cash") tradeInCashOutFromPrevious += (t.value || 0);
+      else tradeInCashOutFromTill += (t.value || 0);
+    }
     else if (t.payment === "bank") tradeInBankOut += (t.value || 0);
     else if (t.payment === "credit") tradeInCreditOut += (t.value || 0);
   });
-  const totalTradeInSpend = tradeInCashOut + tradeInBankOut + tradeInCreditOut;
+  const tradeInCashOut = tradeInCashOutFromTill; // Only till cash affects today's totals
+  const totalTradeInSpend = tradeInCashOutFromTill + tradeInCashOutFromPrevious + tradeInBankOut + tradeInCreditOut;
 
   // Deposits — all payments across all deposits (including top-ups), filtered by payment date
   let depositCashIn = 0, depositCardIn = 0;
@@ -4974,8 +5046,14 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
   // Net (after refunds AND trade-in payouts AND fixing deposit double-counting)
   const netSalesCash = salesCash - salesCashRefunded - depositDoubleCountCash;
   const netSalesCard = salesCard - salesCardRefunded - depositDoubleCountCard;
-  const totalCashIn = netSalesCash + repairCash + depositCashIn - tradeInCashOut - repairRefundCash;
-  const totalCardIn = netSalesCard + repairCard + depositCardIn - repairRefundCard;
+  // GROSS totals — what actually came IN before we paid out trade-ins from the till
+  // This is what customers gave us for sales/repairs/deposits.
+  const grossCashIn = netSalesCash + repairCash + depositCashIn - repairRefundCash;
+  const grossCardIn = netSalesCard + repairCard + depositCardIn - repairRefundCard;
+  const grossIntake = grossCashIn + grossCardIn;
+  // NET totals — after trade-in payouts from today's till (what's actually left in the drawer)
+  const totalCashIn = grossCashIn - tradeInCashOut;
+  const totalCardIn = grossCardIn;
   const totalIntake = totalCashIn + totalCardIn;
   const totalRefunds = salesCashRefunded + salesCardRefunded;
 
@@ -5059,7 +5137,14 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
           <div style={{ background: "linear-gradient(135deg, #10b981, #059669)", borderRadius: 14, padding: 16, color: "#fff" }}>
             <div style={{ fontSize: 11, opacity: 0.9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>💰 Total Intake</div>
             <div style={{ fontSize: 26, fontWeight: 900, marginTop: 4 }}>{currency(totalIntake)}</div>
-            <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>Cash + Card combined</div>
+            <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
+              {tradeInCashOutFromTill > 0 ? `After £${tradeInCashOutFromTill.toFixed(2)} trade-in payouts` : "Cash + Card combined"}
+            </div>
+            {tradeInCashOutFromTill > 0 && (
+              <div style={{ fontSize: 10, opacity: 0.95, marginTop: 6, padding: "4px 8px", background: "rgba(255,255,255,0.2)", borderRadius: 6 }}>
+                💵 Gross (before trade-ins): <strong>{currency(grossIntake)}</strong>
+              </div>
+            )}
           </div>
           {!isStaffMode && (
             <div style={{ background: "linear-gradient(135deg, #2563eb, #3b82f6)", borderRadius: 14, padding: 16, color: "#fff" }}>
@@ -5101,6 +5186,35 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
             <div style={{ fontSize: 10, opacity: 0.85, marginTop: 2 }}>Cash + Card combined</div>
           </div>
         </div>
+
+        {/* Gross vs Net breakdown — only visible when trade-ins reduced the till today */}
+        {tradeInCashOutFromTill > 0 && (
+          <div style={{ background: "#fffbeb", border: "1px solid #f59e0b", borderRadius: 12, padding: 14, marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>💰 Intake breakdown (trade-in impact)</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+              <div style={{ padding: 10, background: "#fff", border: "1px solid #f59e0b60", borderRadius: 8 }}>
+                <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase" }}>Gross Intake</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: "#10b981", marginTop: 2 }}>{currency(grossIntake)}</div>
+                <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>What customers gave us</div>
+              </div>
+              <div style={{ padding: 10, background: "#fff", border: "1px solid #f59e0b60", borderRadius: 8 }}>
+                <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase" }}>Trade-Ins from Till</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: "#ef4444", marginTop: 2 }}>-{currency(tradeInCashOutFromTill)}</div>
+                <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>{periodTradeIns.filter(t => t.payment === "cash" && (t.cashSource || "till") === "till").length} payout{periodTradeIns.filter(t => t.payment === "cash" && (t.cashSource || "till") === "till").length !== 1 ? "s" : ""}</div>
+              </div>
+              <div style={{ padding: 10, background: "#f0fdf4", border: "2px solid #10b981", borderRadius: 8 }}>
+                <div style={{ fontSize: 10, color: "#065f46", fontWeight: 700, textTransform: "uppercase" }}>Net (In Till)</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: "#10b981", marginTop: 2 }}>{currency(totalIntake)}</div>
+                <div style={{ fontSize: 10, color: "#065f46", marginTop: 2 }}>What's actually left</div>
+              </div>
+            </div>
+            {tradeInCashOutFromPrevious > 0 && (
+              <div style={{ marginTop: 8, padding: "6px 10px", background: "#eff6ff", border: "1px solid #2563eb40", borderRadius: 6, fontSize: 11, color: "#1e40af" }}>
+                💡 Additional {currency(tradeInCashOutFromPrevious)} paid from previous cash / owner's wallet — not included in today's till figures.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Detailed breakdown table (owner/manager only) */}
         {!isStaffMode && (
@@ -5153,12 +5267,32 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
                     <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#ef4444" }}>-{currency(totalRepairRefunds)}</td>
                   </tr>
                 )}
-                {totalTradeInSpend > 0 && (
+                {tradeInCashOutFromTill > 0 && (
                   <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
-                    <td style={{ padding: "8px 4px", color: "#f59e0b", fontWeight: 600 }}>Trade-In Payouts {tradeInBankOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>(+ {currency(tradeInBankOut)} bank)</span>}{tradeInCreditOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}> (+ {currency(tradeInCreditOut)} store credit)</span>}</td>
-                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#f59e0b" }}>-{currency(tradeInCashOut)}</td>
+                    <td style={{ padding: "8px 4px", color: "#ef4444", fontWeight: 600 }}>Trade-In Payouts (from till)</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#ef4444" }}>-{currency(tradeInCashOutFromTill)}</td>
                     <td style={{ padding: "8px 4px", textAlign: "right", color: "#9ca3af" }}>—</td>
-                    <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#f59e0b" }}>-{currency(tradeInCashOut)}</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#ef4444" }}>-{currency(tradeInCashOutFromTill)}</td>
+                  </tr>
+                )}
+                {tradeInCashOutFromPrevious > 0 && (
+                  <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                    <td style={{ padding: "8px 4px", color: "#6b7280", fontWeight: 600, fontSize: 12 }}>Trade-In Payouts (previous cash) <span style={{ fontSize: 10, fontStyle: "italic" }}>— not deducted from till</span></td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#9ca3af", fontSize: 12 }}>({currency(tradeInCashOutFromPrevious)})</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#9ca3af" }}>—</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 400, color: "#9ca3af", fontSize: 12 }}>({currency(tradeInCashOutFromPrevious)})</td>
+                  </tr>
+                )}
+                {(tradeInBankOut > 0 || tradeInCreditOut > 0) && (
+                  <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                    <td style={{ padding: "8px 4px", color: "#6b7280", fontWeight: 600, fontSize: 12 }}>
+                      Other Trade-In Payouts
+                      {tradeInBankOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, marginLeft: 6 }}>🏦 {currency(tradeInBankOut)} bank</span>}
+                      {tradeInCreditOut > 0 && <span style={{ fontSize: 11, fontWeight: 400, marginLeft: 6 }}>🎟 {currency(tradeInCreditOut)} credit</span>}
+                    </td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#9ca3af" }}>—</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#9ca3af" }}>—</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", fontSize: 12, color: "#9ca3af" }}>Non-till</td>
                   </tr>
                 )}
                 <tr style={{ borderTop: "2px solid #111827" }}>
