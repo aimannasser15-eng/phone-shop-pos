@@ -17,8 +17,8 @@ const fbApp = initializeApp(firebaseConfig);
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
 
-const TABS = ["pos", "inventory", "sales", "customers", "repairs", "tradeins", "deposits", "reports"];
-const TAB_LABELS = { pos: "Point of Sale", inventory: "Inventory", sales: "Sales History", customers: "Customers", repairs: "Repairs", tradeins: "Trade-Ins", deposits: "Deposits", reports: "Reports" };
+const TABS = ["pos", "inventory", "sales", "customers", "repairs", "tradeins", "deposits", "cashmgmt", "reports"];
+const TAB_LABELS = { pos: "Point of Sale", inventory: "Inventory", sales: "Sales History", customers: "Customers", repairs: "Repairs", tradeins: "Trade-Ins", deposits: "Deposits", cashmgmt: "Cash Management", reports: "Reports" };
 const TRADEIN_STATUSES = ["Received", "Testing", "Added to Stock", "Rejected"];
 const DEPOSIT_STATUSES = ["Active", "Completed", "Expired", "Cancelled"];
 const TAB_ICONS = {
@@ -29,6 +29,7 @@ const TAB_ICONS = {
   repairs: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z",
   tradeins: "M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4",
   deposits: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+  cashmgmt: "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z",
   reports: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
 };
 
@@ -3717,7 +3718,7 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
 // TRADE-INS TAB
 // ═══════════════════════════════════════════════════════════════════
 
-const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products, setProducts, activeStaff }) => {
+const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products, setProducts, activeStaff, cashMovements, setCashMovements }) => {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [statusFilter, setStatusFilter] = useState("All");
@@ -3760,7 +3761,7 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
       deviceModel: form.deviceModel,
       imei: form.imei, color: form.color, storage: form.storage, grade: form.grade,
       notes: form.notes, value: +form.value || 0, payment: form.payment,
-      cashSource: form.payment === "cash" ? (form.cashSource || "till") : null, // "till" | "previous_cash" — only relevant for cash payouts
+      cashSource: form.payment === "cash" ? (form.cashSource || "till") : null, // "till" | "safe" — only relevant for cash payouts
       idSeen: form.idSeen, idType: form.idType,
       dateIn: form.dateIn || today(),
       status: editing ? form.status : "Received", // keep existing status if editing, default Received for new
@@ -3772,7 +3773,22 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
     if (editing) {
       setTradeIns(prev => prev.map(t => t.id === editing ? { ...t, ...item } : t));
     } else {
-      setTradeIns(prev => [...prev, { id: uid(), ...item }]);
+      const newId = uid();
+      setTradeIns(prev => [...prev, { id: newId, ...item }]);
+      // Auto-record safe withdrawal if this trade-in is paid from the safe
+      if (item.payment === "cash" && item.cashSource === "safe" && (item.value || 0) > 0 && setCashMovements) {
+        const cust = customers.find(c => c.id === item.customer);
+        setCashMovements(prev => [...(prev || []), {
+          id: uid(),
+          date: new Date().toISOString(),
+          type: "trade_in_payout",
+          amount: item.value,
+          note: `Trade-in payout: ${item.deviceModel}${cust?.name ? ` (${cust.name})` : ""}`,
+          staff: activeStaff?.name || "",
+          staffId: activeStaff?.id || "",
+          linkedRecordId: newId,
+        }]);
+      }
     }
     setShowModal(false);
   };
@@ -3989,7 +4005,7 @@ const TradeInsTab = ({ tradeIns, setTradeIns, customers, setCustomers, products,
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {[
                     ["till", "💵 From Today's Till", "Reduces today's cash intake in reports"],
-                    ["previous_cash", "🏦 From Previous Cash / Owner's Wallet", "No effect on today's intake — money was already there"],
+                    ["safe", "🏦 From the Safe", "Uses previous days' cash — automatically deducted from safe balance"],
                   ].map(([val, label, desc]) => (
                     <button key={val} type="button" onClick={() => setForm({ ...form, cashSource: val })}
                       style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${form.cashSource === val ? "#f59e0b" : "#d4d8e0"}`, background: form.cashSource === val ? "#ffffff" : "transparent", color: form.cashSource === val ? "#92400e" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", textAlign: "left" }}>
@@ -4853,6 +4869,277 @@ const DepositsTab = ({ deposits, setDeposits, customers, setCustomers, products,
   );
 };
 
+// ─── Cash Management (Safe) Tab ─────────────────────────────────────
+// Tracks running safe balance. Cash movements are stored as their own records
+// with types: deposit_to_safe, withdraw_from_safe, owner_collection, manual_adjustment, trade_in_payout
+// Safe balance = sum of (deposits + adjustments-positive) - (withdrawals + collections + payouts)
+const CashManagementTab = ({ cashMovements, setCashMovements, tradeIns, activeStaff, isOwner }) => {
+  const isMobile = useIsMobile();
+  const [showMovementModal, setShowMovementModal] = useState(false);
+  const [movementType, setMovementType] = useState("deposit"); // "deposit" | "withdraw" | "adjustment"
+  const [movementAmount, setMovementAmount] = useState("");
+  const [movementNote, setMovementNote] = useState("");
+  const [showCollectModal, setShowCollectModal] = useState(false);
+  const [filterRange, setFilterRange] = useState("30days"); // 30days | week | all | custom
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+
+  // Calculate current running balance
+  const currentBalance = (cashMovements || []).reduce((sum, m) => {
+    // Positive: money going INTO the safe
+    if (m.type === "deposit_to_safe" || (m.type === "manual_adjustment" && m.amount > 0)) return sum + Math.abs(m.amount || 0);
+    // Negative: money leaving the safe
+    if (m.type === "withdraw_from_safe" || m.type === "owner_collection" || m.type === "trade_in_payout") return sum - Math.abs(m.amount || 0);
+    if (m.type === "manual_adjustment" && m.amount < 0) return sum + (m.amount || 0); // amount is already negative
+    return sum;
+  }, 0);
+
+  // Total collected by owner (across all time)
+  const totalCollected = (cashMovements || []).filter(m => m.type === "owner_collection").reduce((t, m) => t + Math.abs(m.amount || 0), 0);
+  const lastCollection = (cashMovements || []).filter(m => m.type === "owner_collection").sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+
+  // This week's activity (Mon-Sun)
+  const now = new Date();
+  const dow = now.getDay() || 7;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (dow - 1));
+  const weekMovements = (cashMovements || []).filter(m => new Date(m.date) >= monday);
+  const weekDeposits = weekMovements.filter(m => m.type === "deposit_to_safe").reduce((t, m) => t + (m.amount || 0), 0);
+  const weekWithdrawals = weekMovements.filter(m => m.type === "withdraw_from_safe" || m.type === "trade_in_payout").reduce((t, m) => t + Math.abs(m.amount || 0), 0);
+
+  // Filter movements for the log display
+  const getDateFilterFn = () => {
+    const t = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+    if (filterRange === "week") return (d) => new Date(d) >= monday;
+    if (filterRange === "30days") return (d) => new Date(d) >= new Date(t.getTime() - 30 * 86400000);
+    if (filterRange === "custom") {
+      const from = customFrom ? new Date(customFrom) : null;
+      const to = customTo ? new Date(new Date(customTo).getTime() + 86400000) : null;
+      return (d) => {
+        const dd = new Date(d);
+        if (from && dd < from) return false;
+        if (to && dd >= to) return false;
+        return true;
+      };
+    }
+    return () => true; // "all"
+  };
+  const dateFilter = getDateFilterFn();
+  const filteredMovements = [...(cashMovements || [])].filter(m => dateFilter(m.date)).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const recordMovement = (type, amount, note = "") => {
+    const amt = Math.abs(+amount || 0);
+    if (amt <= 0) return;
+    // Check balance for withdrawals
+    if ((type === "withdraw_from_safe" || type === "owner_collection") && amt > currentBalance) {
+      if (!confirm(`Warning: This will make the safe balance negative (£${(currentBalance - amt).toFixed(2)}). Continue anyway?`)) return;
+    }
+    const movement = {
+      id: uid(),
+      date: new Date().toISOString(),
+      type,
+      amount: (type === "manual_adjustment") ? +amount : amt, // adjustments can be negative
+      note: note.trim(),
+      staff: activeStaff?.name || "",
+      staffId: activeStaff?.id || "",
+    };
+    setCashMovements(prev => [...(prev || []), movement]);
+    setMovementAmount(""); setMovementNote(""); setShowMovementModal(false);
+  };
+
+  const collectWeeklyCash = () => {
+    if (currentBalance <= 0) { alert("Safe is empty — nothing to collect."); return; }
+    const movement = {
+      id: uid(),
+      date: new Date().toISOString(),
+      type: "owner_collection",
+      amount: currentBalance,
+      note: `Weekly collection — £${currentBalance.toFixed(2)}`,
+      staff: activeStaff?.name || "",
+      staffId: activeStaff?.id || "",
+    };
+    setCashMovements(prev => [...(prev || []), movement]);
+    setShowCollectModal(false);
+  };
+
+  const typeInfo = {
+    deposit_to_safe: { icon: "⬆️", label: "Deposit to Safe", color: "#10b981", sign: "+" },
+    withdraw_from_safe: { icon: "⬇️", label: "Withdraw from Safe", color: "#f59e0b", sign: "-" },
+    owner_collection: { icon: "👑", label: "Owner Collection", color: "#8b5cf6", sign: "-" },
+    manual_adjustment: { icon: "✏️", label: "Manual Adjustment", color: "#6b7280", sign: "±" },
+    trade_in_payout: { icon: "🔄", label: "Trade-In Payout", color: "#f59e0b", sign: "-" },
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflowY: "auto" }}>
+      {/* ─── Top row: Current balance + weekly summary ─── */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr", gap: 12, marginBottom: 18 }}>
+        {/* Big safe balance card */}
+        <div style={{ background: "linear-gradient(135deg, #1e293b, #0f172a)", borderRadius: 16, padding: 20, color: "#fff" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <div style={{ fontSize: 30 }}>🏦</div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.75, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>Safe Balance</div>
+              <div style={{ fontSize: 10, opacity: 0.6, marginTop: 1 }}>Cash currently in the safe</div>
+            </div>
+          </div>
+          <div style={{ fontSize: 42, fontWeight: 900, marginTop: 4 }}>{currency(currentBalance)}</div>
+          {lastCollection && (
+            <div style={{ fontSize: 11, opacity: 0.7, marginTop: 6 }}>Last collected {new Date(lastCollection.date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} · {currency(Math.abs(lastCollection.amount))}</div>
+          )}
+        </div>
+
+        {/* This week's flow */}
+        <div style={{ background: "#f0fdf4", border: "1px solid #10b98140", borderRadius: 14, padding: 14 }}>
+          <div style={{ fontSize: 11, color: "#065f46", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>⬆️ This Week — Deposited</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: "#10b981", marginTop: 4 }}>{currency(weekDeposits)}</div>
+          <div style={{ fontSize: 10, color: "#065f46", marginTop: 2 }}>Cash added to safe this week</div>
+        </div>
+
+        <div style={{ background: "#fffbeb", border: "1px solid #f59e0b40", borderRadius: 14, padding: 14 }}>
+          <div style={{ fontSize: 11, color: "#92400e", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>⬇️ This Week — Withdrawn</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: "#f59e0b", marginTop: 4 }}>{currency(weekWithdrawals)}</div>
+          <div style={{ fontSize: 10, color: "#92400e", marginTop: 2 }}>Cash taken out (trade-ins etc.)</div>
+        </div>
+      </div>
+
+      {/* ─── Action buttons ─── */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <Btn variant="success" onClick={() => { setMovementType("deposit"); setMovementAmount(""); setMovementNote(""); setShowMovementModal(true); }}>⬆️ Deposit to Safe</Btn>
+        <Btn variant="warning" onClick={() => { setMovementType("withdraw"); setMovementAmount(""); setMovementNote(""); setShowMovementModal(true); }}>⬇️ Withdraw from Safe</Btn>
+        <Btn variant="ghost" onClick={() => { setMovementType("adjustment"); setMovementAmount(""); setMovementNote(""); setShowMovementModal(true); }}>✏️ Manual Adjustment</Btn>
+        {isOwner && (
+          <Btn onClick={() => setShowCollectModal(true)} style={{ background: "linear-gradient(135deg, #8b5cf6, #7c3aed)", color: "#fff", border: "none", marginLeft: "auto" }}>👑 Collect Weekly Cash</Btn>
+        )}
+      </div>
+
+      {/* ─── Movement log ─── */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'DM Sans', sans-serif" }}>📋 Movement History</div>
+          <div style={{ display: "flex", gap: 6, marginLeft: "auto", flexWrap: "wrap" }}>
+            {[["week", "This Week"], ["30days", "Last 30 Days"], ["all", "All Time"], ["custom", "📅 Custom"]].map(([v, l]) => (
+              <button key={v} onClick={() => setFilterRange(v)} style={{ padding: "5px 12px", borderRadius: 14, border: `1px solid ${filterRange === v ? "#2563eb" : "#d4d8e0"}`, background: filterRange === v ? "#2563eb15" : "#ffffff", color: filterRange === v ? "#2563eb" : "#6b7280", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>{l}</button>
+            ))}
+          </div>
+        </div>
+        {filterRange === "custom" && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
+            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #d4d8e0", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }} />
+            <span style={{ color: "#6b7280" }}>to</span>
+            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #d4d8e0", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }} />
+          </div>
+        )}
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {filteredMovements.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 40, color: "#9ca3af" }}>
+            <div style={{ fontSize: 48, marginBottom: 8 }}>🏦</div>
+            <div style={{ fontSize: 14 }}>No cash movements in this period yet</div>
+            <div style={{ fontSize: 12, marginTop: 4 }}>Deposits, withdrawals, and trade-in payouts will show here</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {filteredMovements.map(m => {
+              const info = typeInfo[m.type] || { icon: "•", label: m.type, color: "#6b7280", sign: "" };
+              const displayAmt = m.type === "manual_adjustment" ? m.amount : Math.abs(m.amount || 0);
+              const isIncoming = m.type === "deposit_to_safe" || (m.type === "manual_adjustment" && m.amount > 0);
+              return (
+                <div key={m.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderLeft: `4px solid ${info.color}`, borderRadius: 10, padding: 12, display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ fontSize: 24 }}>{info.icon}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{info.label}</span>
+                      <span style={{ fontSize: 11, color: "#9ca3af" }}>{new Date(m.date).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                    {m.note && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{m.note}</div>}
+                    {m.staff && <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>👤 {m.staff}</div>}
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: isIncoming ? "#10b981" : "#ef4444", whiteSpace: "nowrap" }}>
+                    {isIncoming ? "+" : "-"}{currency(Math.abs(displayAmt))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ─── New Movement Modal ─── */}
+      <Modal open={showMovementModal} onClose={() => setShowMovementModal(false)} title={
+        movementType === "deposit" ? "⬆️ Deposit to Safe" :
+        movementType === "withdraw" ? "⬇️ Withdraw from Safe" :
+        "✏️ Manual Adjustment"
+      }>
+        <div>
+          <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 12, marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase" }}>Current safe balance</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: "#111827", marginTop: 2 }}>{currency(currentBalance)}</div>
+          </div>
+
+          {movementType === "adjustment" ? (
+            <>
+              <Input label="Amount (£) — use negative to remove" type="number" step="0.01" value={movementAmount} onChange={e => setMovementAmount(e.target.value)} placeholder="e.g. 50 or -20" />
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 12 }}>💡 Use positive for cash found / added, negative for cash removed or missing</div>
+            </>
+          ) : (
+            <Input label="Amount (£)" type="number" step="0.01" min={0.01} value={movementAmount} onChange={e => setMovementAmount(e.target.value)} />
+          )}
+
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>Note (recommended)</label>
+          <textarea value={movementNote} onChange={e => setMovementNote(e.target.value)}
+            placeholder={movementType === "deposit" ? "e.g. End of day takings from till" : movementType === "withdraw" ? "e.g. Need cash for iPhone trade-in" : "e.g. Cash count discrepancy"}
+            style={{ width: "100%", minHeight: 60, padding: 10, borderRadius: 8, border: "1px solid #d4d8e0", fontSize: 13, fontFamily: "'DM Sans', sans-serif", color: "#1f2937", boxSizing: "border-box", resize: "vertical", marginBottom: 14 }} />
+
+          {movementType === "withdraw" && +movementAmount > currentBalance && (
+            <div style={{ padding: 10, background: "#fef2f2", border: "1px solid #ef4444", borderRadius: 8, fontSize: 12, color: "#991b1b", marginBottom: 12 }}>
+              ⚠️ This will make the safe balance negative ({currency(currentBalance - (+movementAmount || 0))})
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <Btn variant="ghost" onClick={() => setShowMovementModal(false)}>Cancel</Btn>
+            <Btn variant={movementType === "deposit" ? "success" : "warning"}
+              disabled={movementType === "adjustment" ? (movementAmount === "" || +movementAmount === 0) : (+movementAmount <= 0)}
+              onClick={() => {
+                const type = movementType === "deposit" ? "deposit_to_safe" : movementType === "withdraw" ? "withdraw_from_safe" : "manual_adjustment";
+                recordMovement(type, movementAmount, movementNote);
+              }}>Record Movement</Btn>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ─── Owner Collection Modal ─── */}
+      <Modal open={showCollectModal} onClose={() => setShowCollectModal(false)} title="👑 Collect Weekly Cash">
+        <div>
+          <div style={{ background: "linear-gradient(135deg, #8b5cf615, #a78bfa15)", border: "1px solid #8b5cf6", borderRadius: 12, padding: 18, marginBottom: 16, textAlign: "center" }}>
+            <div style={{ fontSize: 12, color: "#6b21a8", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Amount to collect</div>
+            <div style={{ fontSize: 42, fontWeight: 900, color: "#7c3aed", marginTop: 8 }}>{currency(currentBalance)}</div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>This will zero the safe balance</div>
+          </div>
+
+          <div style={{ background: "#fffbeb", border: "1px solid #f59e0b40", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12, color: "#92400e" }}>
+            💡 <strong>Before you confirm:</strong>
+            <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
+              <li>Count the cash to make sure it matches {currency(currentBalance)}</li>
+              <li>If it doesn't match, cancel and use "Manual Adjustment" to correct first</li>
+              <li>This action creates a permanent record and can't be undone</li>
+            </ul>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <Btn variant="ghost" onClick={() => setShowCollectModal(false)}>Cancel</Btn>
+            <Btn onClick={collectWeeklyCash} disabled={currentBalance <= 0}
+              style={{ background: "linear-gradient(135deg, #8b5cf6, #7c3aed)", color: "#fff", border: "none" }}>
+              👑 Confirm Collection — {currency(currentBalance)}
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+};
+
 const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mode = "full" }) => {
   // mode: "full" = owner/manager (everything), "today-only" = staff with today-intake permission
   const isStaffMode = mode === "today-only";
@@ -4995,20 +5282,20 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
   const periodTradeIns = tradeIns.filter(t => filterDate(t.dateIn));
   // Split cash trade-ins by source:
   //   - "till" cash → reduces today's cash intake (money came out of the till)
-  //   - "previous_cash" → doesn't affect any day's report (owner brought the money in)
+  //   - "safe" / "previous_cash" → doesn't affect today's report (money came from the safe)
   //   - Legacy trade-ins without cashSource → default to "till" (previous behavior)
-  let tradeInCashOutFromTill = 0, tradeInCashOutFromPrevious = 0, tradeInBankOut = 0, tradeInCreditOut = 0;
+  let tradeInCashOutFromTill = 0, tradeInCashOutFromSafe = 0, tradeInBankOut = 0, tradeInCreditOut = 0;
   periodTradeIns.forEach(t => {
     if (t.payment === "cash") {
       const source = t.cashSource || "till";
-      if (source === "previous_cash") tradeInCashOutFromPrevious += (t.value || 0);
+      if (source === "safe" || source === "previous_cash") tradeInCashOutFromSafe += (t.value || 0);
       else tradeInCashOutFromTill += (t.value || 0);
     }
     else if (t.payment === "bank") tradeInBankOut += (t.value || 0);
     else if (t.payment === "credit") tradeInCreditOut += (t.value || 0);
   });
   const tradeInCashOut = tradeInCashOutFromTill; // Only till cash affects today's totals
-  const totalTradeInSpend = tradeInCashOutFromTill + tradeInCashOutFromPrevious + tradeInBankOut + tradeInCreditOut;
+  const totalTradeInSpend = tradeInCashOutFromTill + tradeInCashOutFromSafe + tradeInBankOut + tradeInCreditOut;
 
   // Deposits — all payments across all deposits (including top-ups), filtered by payment date
   let depositCashIn = 0, depositCardIn = 0;
@@ -5208,9 +5495,9 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
                 <div style={{ fontSize: 10, color: "#065f46", marginTop: 2 }}>What's actually left</div>
               </div>
             </div>
-            {tradeInCashOutFromPrevious > 0 && (
+            {tradeInCashOutFromSafe > 0 && (
               <div style={{ marginTop: 8, padding: "6px 10px", background: "#eff6ff", border: "1px solid #2563eb40", borderRadius: 6, fontSize: 11, color: "#1e40af" }}>
-                💡 Additional {currency(tradeInCashOutFromPrevious)} paid from previous cash / owner's wallet — not included in today's till figures.
+                💡 Additional {currency(tradeInCashOutFromSafe)} paid from the safe — not included in today's till figures.
               </div>
             )}
           </div>
@@ -5275,12 +5562,12 @@ const ReportsTab = ({ sales, products, repairs, tradeIns = [], deposits = [], mo
                     <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#ef4444" }}>-{currency(tradeInCashOutFromTill)}</td>
                   </tr>
                 )}
-                {tradeInCashOutFromPrevious > 0 && (
+                {tradeInCashOutFromSafe > 0 && (
                   <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
-                    <td style={{ padding: "8px 4px", color: "#6b7280", fontWeight: 600, fontSize: 12 }}>Trade-In Payouts (previous cash) <span style={{ fontSize: 10, fontStyle: "italic" }}>— not deducted from till</span></td>
-                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#9ca3af", fontSize: 12 }}>({currency(tradeInCashOutFromPrevious)})</td>
+                    <td style={{ padding: "8px 4px", color: "#6b7280", fontWeight: 600, fontSize: 12 }}>Trade-In Payouts (from safe) <span style={{ fontSize: 10, fontStyle: "italic" }}>— not deducted from till</span></td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", color: "#9ca3af", fontSize: 12 }}>({currency(tradeInCashOutFromSafe)})</td>
                     <td style={{ padding: "8px 4px", textAlign: "right", color: "#9ca3af" }}>—</td>
-                    <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 400, color: "#9ca3af", fontSize: 12 }}>({currency(tradeInCashOutFromPrevious)})</td>
+                    <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 400, color: "#9ca3af", fontSize: 12 }}>({currency(tradeInCashOutFromSafe)})</td>
                   </tr>
                 )}
                 {(tradeInBankOut > 0 || tradeInCreditOut > 0) && (
@@ -5737,6 +6024,7 @@ function MainApp({ user }) {
   const [deposits, setDeposits] = useState([]);
   const [deletionLogs, setDeletionLogs] = useState([]);
   const [staff, setStaff] = useState([]);
+  const [cashMovements, setCashMovements] = useState([]);
   const [activeStaff, setActiveStaff] = useState(null); // { id, name } currently signed in
   const [reportsUnlocked, setReportsUnlocked] = useState(false); // PIN re-entered for Reports
   const [reportsPinModal, setReportsPinModal] = useState(false);
@@ -5752,7 +6040,7 @@ function MainApp({ user }) {
   useEffect(() => { if (!isMobile) setSidebarOpen(true); else setSidebarOpen(false); }, [isMobile]);
 
   // Track previous arrays so we can diff and only save what changed
-  const prevRef = useRef({ products: [], sales: [], customers: [], repairs: [], tradeIns: [], deposits: [], deletionLogs: [], staff: [] });
+  const prevRef = useRef({ products: [], sales: [], customers: [], repairs: [], tradeIns: [], deposits: [], deletionLogs: [], staff: [], cashMovements: [] });
 
   useEffect(() => {
     (async () => {
@@ -5789,7 +6077,7 @@ function MainApp({ user }) {
       }
 
       // Load from new per-doc collections
-      const [p, s, c, r, t, d, dl, st] = await Promise.all([
+      const [p, s, c, r, t, d, dl, st, cm] = await Promise.all([
         loadCollection("products"),
         loadCollection("sales"),
         loadCollection("customers"),
@@ -5798,11 +6086,12 @@ function MainApp({ user }) {
         loadCollection("deposits"),
         loadCollection("deletionLogs"),
         loadCollection("staff"),
+        loadCollection("cashMovements"),
       ]);
       // Fall back to sample products if products collection is empty (fresh install)
       const finalProducts = p.length > 0 ? p : SAMPLE_PRODUCTS;
-      setProducts(finalProducts); setSales(s); setCustomers(c); setRepairs(r); setTradeIns(t); setDeposits(d); setDeletionLogs(dl); setStaff(st);
-      prevRef.current = { products: finalProducts, sales: s, customers: c, repairs: r, tradeIns: t, deposits: d, deletionLogs: dl, staff: st };
+      setProducts(finalProducts); setSales(s); setCustomers(c); setRepairs(r); setTradeIns(t); setDeposits(d); setDeletionLogs(dl); setStaff(st); setCashMovements(cm);
+      prevRef.current = { products: finalProducts, sales: s, customers: c, repairs: r, tradeIns: t, deposits: d, deletionLogs: dl, staff: st, cashMovements: cm };
       setLoaded(true);
     })();
   }, []);
@@ -5822,6 +6111,7 @@ function MainApp({ user }) {
       subscribeCollection("deposits", items => { setDeposits(items); prevRef.current.deposits = items; }),
       subscribeCollection("deletionLogs", items => { setDeletionLogs(items); prevRef.current.deletionLogs = items; }),
       subscribeCollection("staff", items => { setStaff(items); prevRef.current.staff = items; }),
+      subscribeCollection("cashMovements", items => { setCashMovements(items); prevRef.current.cashMovements = items; }),
     ];
     return () => unsubs.forEach(u => u && u());
   }, [loaded]);
@@ -5850,10 +6140,11 @@ function MainApp({ user }) {
   useEffect(() => { if (loaded) syncCollection("deposits", deposits, "deposits"); }, [deposits, loaded]);
   useEffect(() => { if (loaded) syncCollection("deletionLogs", deletionLogs, "deletionLogs"); }, [deletionLogs, loaded]);
   useEffect(() => { if (loaded) syncCollection("staff", staff, "staff"); }, [staff, loaded]);
+  useEffect(() => { if (loaded) syncCollection("cashMovements", cashMovements, "cashMovements"); }, [cashMovements, loaded]);
 
   const resetAll = async () => {
     if (!confirm("Reset ALL data? This cannot be undone.")) return;
-    setProducts(SAMPLE_PRODUCTS); setSales([]); setCustomers([]); setRepairs([]); setTradeIns([]); setDeposits([]); setDeletionLogs([]); setStaff([]);
+    setProducts(SAMPLE_PRODUCTS); setSales([]); setCustomers([]); setRepairs([]); setTradeIns([]); setDeposits([]); setDeletionLogs([]); setStaff([]); setCashMovements([]);
     setActiveStaff(null);
   };
 
@@ -5916,6 +6207,13 @@ function MainApp({ user }) {
               const isManager = liveActiveStaff?.role === "manager";
               const canViewToday = !!liveActiveStaff?.canViewTodayReports;
               if (!isOwner && !isManager && !canViewToday) return false;
+            }
+            // Cash Management visible to: owners, managers, OR staff with canManageCash permission
+            if (t === "cashmgmt") {
+              const isOwner = liveActiveStaff?.role === "owner";
+              const isManager = liveActiveStaff?.role === "manager";
+              const canManage = !!liveActiveStaff?.canManageCash;
+              if (!isOwner && !isManager && !canManage) return false;
             }
             return true;
           }).map(t => (
@@ -5984,8 +6282,23 @@ function MainApp({ user }) {
           {tab === "sales" && <SalesHistoryTab sales={sales} setSales={setSales} products={products} setProducts={setProducts} customers={customers} activeStaff={activeStaff} />}
           {tab === "customers" && <CustomersTab customers={customers} setCustomers={setCustomers} sales={sales} />}
           {tab === "repairs" && <RepairsTab repairs={repairs} setRepairs={setRepairs} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} activeStaff={activeStaff} />}
-          {tab === "tradeins" && <TradeInsTab tradeIns={tradeIns} setTradeIns={setTradeIns} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} activeStaff={activeStaff} />}
+          {tab === "tradeins" && <TradeInsTab tradeIns={tradeIns} setTradeIns={setTradeIns} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} activeStaff={activeStaff} cashMovements={cashMovements} setCashMovements={setCashMovements} />}
           {tab === "deposits" && <DepositsTab deposits={deposits} setDeposits={setDeposits} customers={customers} setCustomers={setCustomers} products={products} setProducts={setProducts} sales={sales} setSales={setSales} activeStaff={activeStaff} />}
+          {tab === "cashmgmt" && (() => {
+            const isOwner = liveActiveStaff?.role === "owner";
+            const isManager = liveActiveStaff?.role === "manager";
+            const canManage = !!liveActiveStaff?.canManageCash;
+            if (!isOwner && !isManager && !canManage) {
+              return (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", color: "#6b7280", textAlign: "center", padding: 40 }}>
+                  <div style={{ fontSize: 60, marginBottom: 16 }}>🔒</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 8 }}>Cash Management is restricted</div>
+                  <div style={{ fontSize: 14, maxWidth: 360 }}>You don't have permission to manage the safe. Ask the owner to enable this in Permissions.</div>
+                </div>
+              );
+            }
+            return <CashManagementTab cashMovements={cashMovements} setCashMovements={setCashMovements} tradeIns={tradeIns} activeStaff={liveActiveStaff} isOwner={isOwner} />;
+          })()}
           {tab === "reports" && (() => {
             // Look up the live staff record (in case permissions changed)
             const liveStaff = staff.find(s => s.id === activeStaff?.id) || activeStaff;
@@ -6063,14 +6376,15 @@ function MainApp({ user }) {
       </Modal>
 
       {/* ─── Permissions Management Modal (Owner only) ─── */}
-      <Modal open={permissionsModal} onClose={() => setPermissionsModal(false)} title="🔐 Manage Reports Access" wide>
+      <Modal open={permissionsModal} onClose={() => setPermissionsModal(false)} title="🔐 Manage Staff Permissions" wide>
         <div>
           <div style={{ background: "#eff6ff", border: "1px solid #2563eb40", borderRadius: 10, padding: 14, marginBottom: 18, fontSize: 13, color: "#1e40af" }}>
             💡 <strong>How this works:</strong>
             <ul style={{ margin: "8px 0 0 18px", paddingLeft: 0, fontSize: 12, color: "#1e3a8a" }}>
-              <li>👑 <strong>Owners</strong> always see the full Reports page (all dates, profit, totals)</li>
-              <li>🧑‍💼 <strong>Managers</strong> also get full Reports access by default</li>
-              <li>👤 <strong>Staff</strong> see Reports only if you tick the box below — and only today's intake (no historical, no profit)</li>
+              <li>👑 <strong>Owners</strong> and 🧑‍💼 <strong>Managers</strong> get full access to Reports + Cash Management by default</li>
+              <li>👤 <strong>Staff</strong> permissions are individual — tick each box you want to grant</li>
+              <li>📊 <strong>Can view today's intake</strong> — sees the Reports page showing only today (no historical, no profit)</li>
+              <li>🏦 <strong>Can manage safe</strong> — records deposits/withdrawals/adjustments to the cash safe</li>
               <li>🔒 Everyone has to enter their PIN to open Reports — even with permission</li>
             </ul>
           </div>
@@ -6080,25 +6394,34 @@ function MainApp({ user }) {
               const isOwner = member.role === "owner";
               const isManager = member.role === "manager";
               const hasFullAccess = isOwner || isManager;
-              const checked = !!member.canViewTodayReports;
+              const canReports = !!member.canViewTodayReports;
+              const canCash = !!member.canManageCash;
               return (
-                <div key={member.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, background: hasFullAccess ? "#f0fdf4" : "#f8fafc", border: `1px solid ${hasFullAccess ? "#10b98140" : "#e5e7eb"}`, borderRadius: 10 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: hasFullAccess ? "linear-gradient(135deg, #10b981, #059669)" : "linear-gradient(135deg, #6b7280, #4b5563)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700 }}>
+                <div key={member.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, background: hasFullAccess ? "#f0fdf4" : "#f8fafc", border: `1px solid ${hasFullAccess ? "#10b98140" : "#e5e7eb"}`, borderRadius: 10, flexWrap: "wrap" }}>
+                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: hasFullAccess ? "linear-gradient(135deg, #10b981, #059669)" : "linear-gradient(135deg, #6b7280, #4b5563)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
                     {member.name.split(" ").map(w => w[0]).join("").substring(0, 2).toUpperCase()}
                   </div>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 120 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{member.name}</div>
                     <div style={{ fontSize: 11, color: "#6b7280" }}>{isOwner ? "👑 Owner" : isManager ? "🧑‍💼 Manager" : "👤 Staff"}</div>
                   </div>
                   {hasFullAccess ? (
                     <div style={{ background: "#10b981", color: "#fff", padding: "4px 10px", borderRadius: 12, fontSize: 11, fontWeight: 700 }}>✅ Full Access</div>
                   ) : (
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 10px", background: checked ? "#2563eb15" : "#f1f5f9", borderRadius: 8, border: `1px solid ${checked ? "#2563eb" : "#d4d8e0"}` }}>
-                      <input type="checkbox" checked={checked}
-                        onChange={e => setStaff(prev => prev.map(s => s.id === member.id ? { ...s, canViewTodayReports: e.target.checked } : s))}
-                        style={{ width: 18, height: 18, cursor: "pointer" }} />
-                      <span style={{ fontSize: 12, fontWeight: 600, color: checked ? "#2563eb" : "#6b7280" }}>Can view today's intake</span>
-                    </label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 10px", background: canReports ? "#2563eb15" : "#f1f5f9", borderRadius: 8, border: `1px solid ${canReports ? "#2563eb" : "#d4d8e0"}` }}>
+                        <input type="checkbox" checked={canReports}
+                          onChange={e => setStaff(prev => prev.map(s => s.id === member.id ? { ...s, canViewTodayReports: e.target.checked } : s))}
+                          style={{ width: 18, height: 18, cursor: "pointer" }} />
+                        <span style={{ fontSize: 12, fontWeight: 600, color: canReports ? "#2563eb" : "#6b7280" }}>📊 Can view today's intake</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 10px", background: canCash ? "#f59e0b15" : "#f1f5f9", borderRadius: 8, border: `1px solid ${canCash ? "#f59e0b" : "#d4d8e0"}` }}>
+                        <input type="checkbox" checked={canCash}
+                          onChange={e => setStaff(prev => prev.map(s => s.id === member.id ? { ...s, canManageCash: e.target.checked } : s))}
+                          style={{ width: 18, height: 18, cursor: "pointer" }} />
+                        <span style={{ fontSize: 12, fontWeight: 600, color: canCash ? "#92400e" : "#6b7280" }}>🏦 Can manage safe</span>
+                      </label>
+                    </div>
                   )}
                 </div>
               );
