@@ -42,6 +42,45 @@ const GRADES = ["A", "B", "C", "D"];
 
 const currency = (n) => `£${Number(n || 0).toFixed(2)}`;
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+// ─── Thermal Printer Integration ─────────────────────────────────
+// Sends print jobs to the local Mac helper service (see sp-phones-printer/).
+// Falls back to normal browser print if the service is unreachable.
+// The Mac's IP is stored per-device in localStorage.
+const PRINTER_URL_KEY = "pos-printer-url";
+const getPrinterUrl = () => {
+  try { return localStorage.getItem(PRINTER_URL_KEY) || ""; } catch { return ""; }
+};
+const setPrinterUrl = (url) => {
+  try { localStorage.setItem(PRINTER_URL_KEY, url || ""); } catch {}
+};
+const thermalPrint = async (endpoint, data) => {
+  const url = getPrinterUrl();
+  if (!url) return { success: false, error: "no_printer_configured" };
+  try {
+    const res = await fetch(`${url.replace(/\/$/, "")}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return { success: false, error: `HTTP ${res.status}` };
+    const json = await res.json();
+    return json;
+  } catch (err) {
+    return { success: false, error: err.message || "connection_failed" };
+  }
+};
+const thermalCheck = async () => {
+  const url = getPrinterUrl();
+  if (!url) return { available: false };
+  try {
+    const res = await fetch(`${url.replace(/\/$/, "")}/status`, { signal: AbortSignal.timeout(2500) });
+    if (!res.ok) return { available: false };
+    const json = await res.json();
+    return { available: true, ...json };
+  } catch { return { available: false }; }
+};
 const today = () => new Date().toISOString().slice(0, 10);
 
 // ─── Mobile Detection Hook ────────────────────────────────────────
@@ -357,6 +396,87 @@ const printReceipt = (params) => {
   if (!win) { alert("Please allow pop-ups to print the receipt."); return; }
   win.document.write(html);
   win.document.close();
+};
+
+// ─── Print via thermal printer (Mac helper service) ─────────────
+// Falls back to alerting the user if the printer service isn't reachable.
+const printThermalSale = async (sale, customer) => {
+  const payload = {
+    receiptId: sale.id,
+    items: (sale.items || []).map(i => ({
+      qty: i.qty || 1,
+      name: i.name,
+      price: i.price || 0,
+      imei: i.imei || "",
+      color: i.color || "",
+      storage: i.storage || "",
+      grade: i.grade || "",
+    })),
+    subtotal: sale.subtotal || sale.total || 0,
+    discount: sale.discount || 0,
+    total: sale.total || 0,
+    payment: sale.payment || "cash",
+    cashAmount: sale.cashPaid || 0,
+    cardAmount: sale.cardPaid || 0,
+    customerName: customer?.name || "",
+    customerPhone: customer?.phone || "",
+    staffName: sale.staff || "",
+  };
+  const result = await thermalPrint("/print/receipt", payload);
+  if (!result.success) {
+    const url = getPrinterUrl();
+    if (!url) {
+      alert("🖨 No thermal printer configured yet.\n\nGo to Settings → Printer Setup to add the iMac's IP address.");
+    } else {
+      alert(`🖨 Print failed: ${result.error}\n\nCheck the iMac is on and the printer is connected. Falling back to browser print.`);
+      printReceipt({ type: "sale", data: sale, customer });
+    }
+  }
+  return result;
+};
+
+const printThermalRepair = async (repair, customer) => {
+  const payload = {
+    repairId: repair.id,
+    device: repair.device || "",
+    imei: repair.imei || "",
+    issue: repair.issue || "",
+    cost: repair.cost || 0,
+    amountPaid: repair.amountPaid || 0,
+    paymentStatus: repair.paymentStatus || "due_on_collection",
+    status: repair.status || "Received",
+    customerName: customer?.name || "",
+    customerPhone: customer?.phone || "",
+    staffName: repair.staff || "",
+    dateIn: repair.dateIn || new Date().toISOString(),
+  };
+  const result = await thermalPrint("/print/repair", payload);
+  if (!result.success) {
+    const url = getPrinterUrl();
+    if (!url) alert("🖨 No thermal printer configured. Go to Settings → Printer Setup.");
+    else { alert(`🖨 Print failed: ${result.error}\nFalling back to browser print.`); printReceipt({ type: "repair", data: repair, customer }); }
+  }
+  return result;
+};
+
+const printThermalDeposit = async (deposit, customer) => {
+  const payload = {
+    depositId: deposit.id,
+    items: deposit.items || [],
+    agreedPrice: deposit.agreedPrice || 0,
+    amountPaid: (deposit.payments || []).reduce((t, p) => t + (p.amount || 0), 0),
+    deadline: deposit.deadline || "",
+    customerName: customer?.name || "",
+    customerPhone: customer?.phone || "",
+    staffName: deposit.staff || "",
+  };
+  const result = await thermalPrint("/print/deposit", payload);
+  if (!result.success) {
+    const url = getPrinterUrl();
+    if (!url) alert("🖨 No thermal printer configured. Go to Settings → Printer Setup.");
+    else { alert(`🖨 Print failed: ${result.error}\nFalling back to browser print.`); printReceipt({ type: "deposit", data: deposit, customer }); }
+  }
+  return result;
 };
 
 // Generate receipt as downloadable HTML file
@@ -1427,7 +1547,8 @@ const POSTab = ({ products, setProducts, sales, setSales, customers, setCustomer
                     </div>
                   )}
                   <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 14, flexWrap: "wrap", fontFamily: "'DM Sans', sans-serif" }}>
-                    <Btn variant="primary" onClick={() => printReceipt(params)}>🖨 Print / PDF</Btn>
+                    <Btn variant="success" onClick={() => printThermalSale(showReceipt, cust)}>🧾 Thermal Print</Btn>
+                    <Btn variant="primary" onClick={() => printReceipt(params)}>🖨 A4 / PDF</Btn>
                     {cust?.phone && <Btn variant="success" onClick={() => sendWhatsApp(params, cust?.phone)}>💬 WhatsApp</Btn>}
                     {cust?.email && <Btn variant="warning" onClick={handleBrevoSend} disabled={emailStatus?.type === "loading"}>📧 Email Receipt</Btn>}
                   </div>
@@ -2467,7 +2588,8 @@ const SalesHistoryTab = ({ sales, setSales, products, setProducts, customers, ac
 
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18, flexWrap: "wrap" }}>
                 <Btn variant="ghost" onClick={() => { setSelected(null); setEmailStatus(null); }}>Close</Btn>
-                <Btn variant="primary" onClick={() => printReceipt({ type: "sale", data: selected, customer: cust })}>🖨 Print / PDF</Btn>
+                <Btn variant="success" onClick={() => printThermalSale(selected, cust)}>🧾 Thermal</Btn>
+                <Btn variant="primary" onClick={() => printReceipt({ type: "sale", data: selected, customer: cust })}>🖨 A4 / PDF</Btn>
                 <Btn variant="success" onClick={() => sendWhatsApp({ type: "sale", data: selected, customer: cust }, cust?.phone)}>💬 WhatsApp</Btn>
                 {cust?.email && <Btn variant="warning" onClick={async () => {
                   setEmailStatus({ type: "loading", message: "Sending…" });
@@ -3166,8 +3288,10 @@ const RepairsTab = ({ repairs, setRepairs, customers, setCustomers, products, se
                   <button onClick={e => { e.stopPropagation(); setCancelModal({ repair: r, reason: "", refundAmount: r.amountPaid || 0 }); }}
                     style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #ef4444", background: "#ef444415", color: "#ef4444", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🚫 Cancel</button>
                 )}
+                <button onClick={e => { e.stopPropagation(); printThermalRepair(r, cust); }}
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #10b981", background: "#10b98115", color: "#10b981", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🧾 Thermal</button>
                 <button onClick={e => { e.stopPropagation(); printReceipt({ type: "repair", data: r, customer: cust }); }}
-                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #2563eb", background: "#2563eb15", color: "#2563eb", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🖨 Print Receipt</button>
+                  style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #2563eb", background: "#2563eb15", color: "#2563eb", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>🖨 A4</button>
                 {cust?.phone && <button onClick={e => { e.stopPropagation(); sendWhatsApp({ type: "repair", data: r, customer: cust }, cust?.phone); }}
                   style={{ fontSize: 11, padding: "5px 12px", borderRadius: 8, border: "1px solid #10b981", background: "#05966915", color: "#10b981", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>💬 WhatsApp</button>}
                 {cust?.phone && <button onClick={e => {
@@ -6031,6 +6155,10 @@ function MainApp({ user }) {
   const [reportsPin, setReportsPin] = useState("");
   const [reportsPinError, setReportsPinError] = useState("");
   const [permissionsModal, setPermissionsModal] = useState(false); // owner-only access mgmt
+  const [printerModal, setPrinterModal] = useState(false);
+  const [printerUrl, setPrinterUrlState] = useState(getPrinterUrl());
+  const [printerStatus, setPrinterStatus] = useState(null); // { available, printerConnected, ... }
+  const [printerTesting, setPrinterTesting] = useState(false);
   // When switching staff, lock reports again
   useEffect(() => { setReportsUnlocked(false); }, [activeStaff?.id]);
   const [loaded, setLoaded] = useState(false);
@@ -6235,6 +6363,8 @@ function MainApp({ user }) {
             </div>
           </div>
           <button onClick={() => setActiveStaff(null)} style={{ fontSize: 12, color: "#2563eb", background: "#2563eb15", border: "1px solid #2563eb", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6, fontWeight: 600 }}>🔄 Switch User</button>
+          {/* Printer setup — visible to everyone (per-device setting stored in localStorage) */}
+          <button onClick={() => setPrinterModal(true)} style={{ fontSize: 12, color: "#10b981", background: "#10b98115", border: "1px solid #10b981", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6, fontWeight: 600, display: "block" }}>🖨 Printer Setup</button>
           {/* Owner-only: manage who can see reports (uses live staff record) */}
           {liveActiveStaff?.role === "owner" && (
             <button onClick={() => setPermissionsModal(true)} style={{ fontSize: 12, color: "#f59e0b", background: "#f59e0b15", border: "1px solid #f59e0b", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 6, fontWeight: 600, display: "block" }}>🔐 Manage Permissions</button>
@@ -6371,6 +6501,61 @@ function MainApp({ user }) {
                 setReportsPinError("Incorrect PIN");
               }
             }} disabled={reportsPin.length !== 4}>🔓 Unlock</Btn>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ─── Printer Setup Modal ─── */}
+      <Modal open={printerModal} onClose={() => setPrinterModal(false)} title="🖨 Thermal Printer Setup">
+        <div>
+          <div style={{ background: "#f0fdf4", border: "1px solid #10b98140", borderRadius: 10, padding: 14, marginBottom: 16, fontSize: 13, color: "#065f46" }}>
+            💡 <strong>How this works:</strong> The shop iMac runs a small printer helper service. Enter its address below so this device can send receipts to the thermal printer.
+            <div style={{ fontSize: 11, marginTop: 6, color: "#059669" }}>Each device (iPad, iPhone, iMac) needs to be set up once. The setting is remembered on this device.</div>
+          </div>
+
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 5, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>Printer Service URL</label>
+          <input type="text" value={printerUrl} onChange={e => setPrinterUrlState(e.target.value)}
+            placeholder="http://192.168.1.200:8080"
+            style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: "1px solid #d4d8e0", background: "#ffffff", color: "#111827", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", marginBottom: 6 }} />
+          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 14 }}>Example: <code style={{ background: "#f5f7fa", padding: "1px 5px", borderRadius: 4 }}>http://192.168.1.200:8080</code> (ask the setup person for the iMac's IP)</div>
+
+          {printerStatus && (
+            <div style={{ padding: 12, borderRadius: 10, marginBottom: 14, background: printerStatus.available ? "#f0fdf4" : "#fef2f2", border: `1px solid ${printerStatus.available ? "#10b981" : "#ef4444"}40` }}>
+              {printerStatus.available ? (
+                <div style={{ fontSize: 13 }}>
+                  <div style={{ color: "#10b981", fontWeight: 700 }}>✅ Connected to printer service</div>
+                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>Printer: <strong style={{ color: printerStatus.printerConnected ? "#10b981" : "#ef4444" }}>{printerStatus.printerConnected ? "Ready ✓" : "Not connected ✗"}</strong></div>
+                  {printerStatus.printCount !== undefined && <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>Total prints since startup: {printerStatus.printCount}</div>}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: "#ef4444" }}>
+                  <div style={{ fontWeight: 700 }}>❌ Could not reach printer service</div>
+                  <div style={{ fontSize: 11, color: "#991b1b", marginTop: 4 }}>Check: iMac is on, printer service is running, both devices on same WiFi, URL is correct.</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+            <Btn variant="ghost" onClick={async () => {
+              setPrinterTesting(true);
+              // Save first so thermalCheck picks it up
+              setPrinterUrl(printerUrl);
+              const status = await thermalCheck();
+              setPrinterStatus(status);
+              setPrinterTesting(false);
+            }} disabled={!printerUrl || printerTesting}>{printerTesting ? "Testing…" : "🔍 Test Connection"}</Btn>
+            <Btn variant="warning" onClick={async () => {
+              if (!printerUrl) { alert("Enter the printer URL first"); return; }
+              setPrinterUrl(printerUrl);
+              const result = await thermalPrint("/print/test", {});
+              if (result.success) alert("✅ Test receipt sent to printer!");
+              else alert(`❌ Failed: ${result.error}`);
+            }} disabled={!printerUrl}>🧾 Send Test Print</Btn>
+            <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+              <Btn variant="ghost" onClick={() => { setPrinterUrlState(""); setPrinterUrl(""); setPrinterStatus(null); }}>Clear</Btn>
+              <Btn variant="success" onClick={() => { setPrinterUrl(printerUrl); alert("✅ Printer settings saved on this device."); setPrinterModal(false); }}>Save</Btn>
+            </div>
           </div>
         </div>
       </Modal>
